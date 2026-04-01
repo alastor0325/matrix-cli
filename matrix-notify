@@ -191,11 +191,16 @@ def setup():
         sys.exit("Error: room ID cannot be empty")
     print(f"  ✓ MATRIX_ROOM_ID saved\n")
 
-    notify_user = input("Step 4/6 — Your Matrix user ID (e.g. @you:mozilla.org): ").strip()
-    if not notify_user:
-        sys.exit("Error: user ID cannot be empty")
-    if not notify_user.startswith("@") or ":" not in notify_user:
-        sys.exit(f"Error: user ID must be in the format @username:homeserver (got '{notify_user}')")
+    print("Step 4/6 — Your Matrix user ID")
+    print("  Find it in Element: Settings → Account → your ID is shown as @username:homeserver")
+    while True:
+        notify_user = input("  User ID (e.g. @you:mozilla.org): ").strip()
+        if not notify_user:
+            print("  ! Cannot be empty, please try again")
+        elif not notify_user.startswith("@") or ":" not in notify_user:
+            print(f"  ! Must be in the format @username:homeserver (got '{notify_user}'), please try again")
+        else:
+            break
     print(f"  ✓ MATRIX_NOTIFY_USER saved\n")
 
     config_path.write_text(

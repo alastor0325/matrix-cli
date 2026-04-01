@@ -39,7 +39,7 @@ Or invoke it explicitly:
 matrix-notify setup
 ```
 
-This walks you through four steps (homeserver URL, bot access token, room ID, your Matrix user ID) and writes credentials to `~/.matrix-cli/config` — outside the repo, never committed. The homeserver URL defaults to `https://mozilla.modular.im` if you press Enter; all other values are required and setup exits with an error if left blank or invalid.
+This walks you through four steps (homeserver URL, bot access token, room ID, your Matrix user ID) and writes credentials to `~/.matrix-cli/config` — outside the repo, never committed. The homeserver URL defaults to `https://mozilla.modular.im` if you press Enter. The bot token and room ID are required and setup exits with an error if left blank. For your Matrix user ID, setup prompts repeatedly until a valid `@username:homeserver` value is entered.
 
 ### Getting the credentials
 
@@ -48,7 +48,7 @@ This walks you through four steps (homeserver URL, bot access token, room ID, yo
 | Homeserver URL | Element → Settings → Help & About → Homeserver |
 | Bot access token | Log into Element as the bot → Settings → Help & About → Access Token |
 | Room ID | Open the private room → Room Settings → Advanced → Internal room ID (starts with `!`) |
-| Your Matrix user ID | Must be in `@username:homeserver` format (e.g. `@you:mozilla.org`) |
+| Your Matrix user ID | Element → Settings → Account (shown as `@username:homeserver`) |
 
 ### Room setup (one-time)
 
