@@ -275,7 +275,7 @@ class TestMatrixAPI:
 
 class TestBotAutoJoin:
     def _base_inputs(self, tmp_path):
-        return [str(tmp_path), "", "!room:m.org", "@you:m.org", ""]
+        return [str(tmp_path), "", "!room:m.org", "@you:m.org", "", ""]
 
     def _mock_put(self, event_id="$e:m.org"):
         m = MagicMock(status_code=200)
@@ -294,9 +294,9 @@ class TestBotAutoJoin:
                             with patch("requests.put", return_value=self._mock_put()):
                                 matrix_notify.setup()
         assert mock_post.called
-        url = mock_post.call_args[0][0]
-        assert "join" in url
-        assert "room" in url  # room_id encoded in URL
+        urls = [c[0][0] for c in mock_post.call_args_list]
+        assert any("join" in url for url in urls)
+        assert any("room" in url for url in urls)
 
     def test_join_failure_does_not_block_setup(self, tmp_path):
         _load()
@@ -352,7 +352,9 @@ class TestSetupValidation:
                 raise OSError("permission denied")
             return original_mkdir(self, *args, **kwargs)
 
-        inputs = iter(["bad/path", str(config_dir), "", "!room:m.org", "@you:m.org", ""])
+        mock_post = MagicMock(status_code=200)
+        mock_post.json.return_value = {"room_id": "!room:m.org"}
+        inputs = iter(["bad/path", str(config_dir), "", "!room:m.org", "@you:m.org", "", ""])
         with patch.object(Path, "mkdir", mkdir_side_effect):
             with patch("subprocess.call"):
                 with patch("subprocess.check_call"):
@@ -360,53 +362,57 @@ class TestSetupValidation:
                         with patch("builtins.input", side_effect=inputs):
                             with patch("getpass.getpass", return_value="tok"):
                                 with patch("requests.put", return_value=mock_resp):
-                                    matrix_notify.setup()
+                                    with patch("requests.post", return_value=mock_post):
+                                        matrix_notify.setup()
 
     # Step 1 — homeserver
     def test_step1_retries_on_invalid_url(self, tmp_path):
         # invalid URL first, then valid
-        inputs = [str(tmp_path), "not-a-url", "https://example.org", "!room:m.org", "@you:m.org", ""]
+        inputs = [str(tmp_path), "not-a-url", "https://example.org", "!room:m.org", "@you:m.org", "", ""]
         _run_setup(inputs)
 
     def test_step1_accepts_default(self, tmp_path):
-        inputs = [str(tmp_path), "", "!room:m.org", "@you:m.org", ""]
+        inputs = [str(tmp_path), "", "!room:m.org", "@you:m.org", "", ""]
         _run_setup(inputs)
 
     # Step 2 — access token
     def test_step2_retries_on_empty_token(self, tmp_path):
-        inputs = [str(tmp_path), "", "!room:m.org", "@you:m.org", ""]
+        inputs = [str(tmp_path), "", "!room:m.org", "@you:m.org", "", ""]
         _load()
-        mock_resp = MagicMock(status_code=200)
-        mock_resp.json.return_value = {"event_id": "$e:m.org"}
+        mock_put = MagicMock(status_code=200)
+        mock_put.json.return_value = {"event_id": "$e:m.org"}
+        mock_post = MagicMock(status_code=200)
+        mock_post.json.return_value = {"room_id": "!room:m.org"}
         tokens = iter(["", "", "valid-token"])
         with patch("subprocess.call"):
             with patch("subprocess.check_call"):
                 with patch.object(matrix_notify, "install_to_path"):
                     with patch("builtins.input", side_effect=iter(inputs)):
                         with patch("getpass.getpass", side_effect=tokens):
-                            with patch("requests.put", return_value=mock_resp):
-                                matrix_notify.setup()
+                            with patch("requests.put", return_value=mock_put):
+                                with patch("requests.post", return_value=mock_post):
+                                    matrix_notify.setup()
 
     # Step 3 — room ID
     def test_step3_retries_on_empty_room_id(self, tmp_path):
-        inputs = [str(tmp_path), "", "", "!room:m.org", "@you:m.org", ""]
+        inputs = [str(tmp_path), "", "", "!room:m.org", "@you:m.org", "", ""]
         _run_setup(inputs)
 
     def test_step3_retries_on_invalid_format(self, tmp_path):
-        inputs = [str(tmp_path), "", "notaroomid", "!room:m.org", "@you:m.org", ""]
+        inputs = [str(tmp_path), "", "notaroomid", "!room:m.org", "@you:m.org", "", ""]
         _run_setup(inputs)
 
     # Step 4 — user ID
     def test_step4_retries_on_empty_user_id(self, tmp_path):
-        inputs = [str(tmp_path), "", "!room:m.org", "", "@you:m.org", ""]
+        inputs = [str(tmp_path), "", "!room:m.org", "", "@you:m.org", "", ""]
         _run_setup(inputs)
 
     def test_step4_retries_on_missing_at(self, tmp_path):
-        inputs = [str(tmp_path), "", "!room:m.org", "you:m.org", "@you:m.org", ""]
+        inputs = [str(tmp_path), "", "!room:m.org", "you:m.org", "@you:m.org", "", ""]
         _run_setup(inputs)
 
     def test_step4_retries_on_missing_colon(self, tmp_path):
-        inputs = [str(tmp_path), "", "!room:m.org", "@youmorg", "@you:m.org", ""]
+        inputs = [str(tmp_path), "", "!room:m.org", "@youmorg", "@you:m.org", "", ""]
         _run_setup(inputs)
 
 
@@ -423,11 +429,13 @@ class TestGitHooksSetup:
         fake_script = repo_dir / "matrix-notify"
         fake_script.write_text("")
 
-        # input() call order: config dir, homeserver, room id, user id, install dir
+        # input() call order: config dir, homeserver, room id, user id, test room id, install dir
         # Use tmp_path for config dir to avoid writing to real ~/.matrix-cli/
-        inputs = iter([str(tmp_path / "config"), "", "!room:m.org", "@you:m.org", ""])
+        inputs = iter([str(tmp_path / "config"), "", "!room:m.org", "@you:m.org", "", ""])
         mock_resp = MagicMock(status_code=200)
         mock_resp.json.return_value = {"event_id": "$e:m.org"}
+        mock_post = MagicMock(status_code=200)
+        mock_post.json.return_value = {"room_id": "!testroom:m.org"}
 
         with patch.object(matrix_notify, "_script_path", return_value=fake_script):
             with patch("subprocess.call") as mock_call:
@@ -436,7 +444,8 @@ class TestGitHooksSetup:
                         with patch("builtins.input", side_effect=inputs):
                             with patch("getpass.getpass", return_value="tok"):
                                 with patch("requests.put", return_value=mock_resp):
-                                    matrix_notify.setup()
+                                    with patch("requests.post", return_value=mock_post):
+                                        matrix_notify.setup()
         git_calls = [c for c in mock_call.call_args_list
                      if c[0][0][:3] == ["git", "config", "core.hooksPath"]]
         assert len(git_calls) == 1

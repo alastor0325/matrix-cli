@@ -1,6 +1,6 @@
 """
 Integration tests — hit the real Matrix room.
-Skipped automatically when ~/.matrix-cli/config is absent.
+Skipped automatically when ~/.matrix-cli/config is absent or has no MATRIX_TEST_ROOM_ID.
 """
 import importlib.util
 import time
@@ -32,25 +32,10 @@ def config():
 
 @pytest.fixture(scope="session")
 def test_room(config):
-    """Create a private room for this test session and delete it afterwards."""
-    homeserver = config["MATRIX_HOMESERVER"]
-    token = config["MATRIX_ACCESS_TOKEN"]
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-
-    resp = _requests.post(
-        f"{homeserver}/_matrix/client/v3/createRoom",
-        headers=headers,
-        json={"name": "matrix-notify test", "preset": "private_chat", "visibility": "private"},
-    )
-    assert resp.status_code == 200, f"Failed to create test room: {resp.text}"
-    room_id = resp.json()["room_id"]
-
-    yield room_id
-
-    _requests.post(
-        f"{homeserver}/_matrix/client/v3/rooms/{_requests.utils.quote(room_id, safe='')}/leave",
-        headers=headers,
-    )
+    room_id = config.get("MATRIX_TEST_ROOM_ID")
+    if not room_id:
+        pytest.skip("MATRIX_TEST_ROOM_ID not set in config — run matrix-notify setup to configure a test room")
+    return room_id
 
 
 @pytest.fixture

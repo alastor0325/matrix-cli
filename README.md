@@ -39,7 +39,9 @@ Or invoke it explicitly:
 matrix-notify setup
 ```
 
-This walks you through four steps (homeserver URL, bot access token, room ID, your Matrix user ID) and writes credentials to `~/.matrix-cli/config` — outside the repo, never committed. The homeserver URL defaults to `https://mozilla.modular.im` if you press Enter. All inputs are validated and setup loops until a valid value is entered — it will not exit on a blank or malformed answer. The access token input is hidden while you type. The room ID must match the `!localpart:server` format — after it is saved, setup automatically attempts to join the bot to the room and sends a confirmation message to the room so you can verify it is working. For your Matrix user ID, setup prompts repeatedly until a valid `@username:homeserver` value is entered.
+This walks you through five steps (homeserver URL, bot access token, room ID, your Matrix user ID, and an optional test room) and writes credentials to `~/.matrix-cli/config` — outside the repo, never committed. The homeserver URL defaults to `https://mozilla.modular.im` if you press Enter. All inputs are validated and setup loops until a valid value is entered — it will not exit on a blank or malformed answer. The access token input is hidden while you type. The room ID must match the `!localpart:server` format — after it is saved, setup automatically attempts to join the bot to the room and sends a confirmation message to the room so you can verify it is working. For your Matrix user ID, setup prompts repeatedly until a valid `@username:homeserver` value is entered.
+
+After saving your Matrix user ID, setup prompts for an optional test room ID used by integration tests. Press Enter to have a private room named "matrix-notify tests" created automatically, or paste an existing `!localpart:server` room ID. If auto-creation succeeds, `MATRIX_TEST_ROOM_ID` is written to the config file alongside the other credentials. If you skip this step or creation fails, the test room entry is omitted and integration tests that require it will be skipped.
 
 ### Getting the credentials
 

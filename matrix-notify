@@ -242,12 +242,36 @@ def setup():
             break
     print(f"  ✓ MATRIX_NOTIFY_USER saved\n")
 
-    config_path.write_text(
+    print("Step 4.5/6 — Test Room ID (optional)")
+    print("  A separate private room used by integration tests.")
+    print("  Press Enter to have one created automatically.")
+    test_room_id = input("  Test Room ID (or Enter to auto-create): ").strip()
+    if test_room_id and (not test_room_id.startswith("!") or ":" not in test_room_id):
+        print(f"  ! Invalid format, will auto-create instead")
+        test_room_id = ""
+    if not test_room_id:
+        create_resp = requests.post(
+            f"{homeserver}/_matrix/client/v3/createRoom",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"name": "matrix-notify tests", "preset": "private_chat", "visibility": "private"},
+        )
+        if create_resp.status_code == 200:
+            test_room_id = create_resp.json()["room_id"]
+            print(f"  ✓ Test room created: {test_room_id}\n")
+        else:
+            print(f"  ! Could not create test room, skipping\n")
+    else:
+        print(f"  ✓ MATRIX_TEST_ROOM_ID saved\n")
+
+    config_content = (
         f"MATRIX_HOMESERVER={homeserver}\n"
         f"MATRIX_ACCESS_TOKEN={token}\n"
         f"MATRIX_ROOM_ID={room_id}\n"
         f"MATRIX_NOTIFY_USER={notify_user}\n"
     )
+    if test_room_id:
+        config_content += f"MATRIX_TEST_ROOM_ID={test_room_id}\n"
+    config_path.write_text(config_content)
 
     default_bin = str(_default_bin_dir())
     raw = input(f"Step 5/6 — Install location\n  Default: {default_bin}\n  Press Enter to accept or type a different path: ").strip()
