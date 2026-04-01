@@ -198,6 +198,7 @@ def setup():
     print("  Find it in Element: Settings → Help & About → Access Token")
     while True:
         token = getpass.getpass("  Paste token (input hidden): ")
+        token = "".join(c for c in token if c.isprintable()).strip()
         if not token:
             print("  ! Cannot be empty, please try again")
         else:
