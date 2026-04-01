@@ -1,0 +1,6 @@
+requests
+
+# dev
+pytest
+pytest-watch
+pytest-cov

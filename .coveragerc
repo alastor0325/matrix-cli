@@ -1,0 +1,6 @@
+[run]
+source = .
+include = matrix-notify
+
+[report]
+show_missing = True

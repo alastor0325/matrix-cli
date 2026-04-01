@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+import getpass
+import json
+import os
+import socket
+import subprocess
+import sys
+import time
+import uuid
+from pathlib import Path
+
+import requests
+
+CONFIG_PATH = Path.home() / ".matrix-cli" / "config"
+SESSIONS_PATH = Path.home() / ".matrix-cli" / "sessions.json"
+REQUIRED_KEYS = ["MATRIX_HOMESERVER", "MATRIX_ACCESS_TOKEN", "MATRIX_ROOM_ID", "MATRIX_NOTIFY_USER"]
+
+
+def load_config(path=None):
+    path = Path(path or CONFIG_PATH)
+    if not path.exists():
+        sys.exit(f"Error: config file not found: {path}\nRun: matrix-notify setup")
+    config = {}
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line and "=" in line:
+            k, _, v = line.partition("=")
+            config[k.strip()] = v.strip()
+    missing = [k for k in REQUIRED_KEYS if k not in config]
+    if missing:
+        sys.exit(f"Error: missing config keys: {', '.join(missing)}")
+    return config
+
+
+def get_session_name():
+    try:
+        name = subprocess.check_output(
+            ["tmux", "display-message", "-p", "#S"],
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+        if name:
+            return name
+    except Exception:
+        pass
+    return f"{socket.gethostname()}-{os.getpid()}"
+
+
+def load_sessions(path=None):
+    path = Path(path or SESSIONS_PATH)
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text())
+
+
+def save_sessions(path, sessions):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(sessions, indent=2))
+
+
+def _put(url, headers, body, retries=3):
+    delays = [1, 2, 4]
+    for attempt in range(retries):
+        resp = requests.put(url, headers=headers, json=body)
+        if resp.status_code == 429:
+            if attempt < retries - 1:
+                time.sleep(delays[attempt])
+                continue
+        if resp.status_code not in (200, 201):
+            sys.exit(f"Error: Matrix API returned {resp.status_code}: {resp.text}")
+        return resp
+    sys.exit(f"Error: Matrix API rate-limited after {retries} retries")
+
+
+def _send_event(config, body):
+    homeserver = config["MATRIX_HOMESERVER"]
+    room_id = config["MATRIX_ROOM_ID"]
+    token = config["MATRIX_ACCESS_TOKEN"]
+    txn_id = str(uuid.uuid4())
+    url = f"{homeserver}/_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn_id}"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    resp = _put(url, headers, body)
+    return resp.json()["event_id"]
+
+
+def ensure_thread(session, config, sessions_path=None):
+    sessions_path = sessions_path or str(SESSIONS_PATH)
+    sessions = load_sessions(sessions_path)
+    if session in sessions:
+        return sessions[session]["thread_id"]
+    ts = time.strftime("%Y-%m-%d %H:%M")
+    event_id = _send_event(config, {"msgtype": "m.text", "body": f"[{session}] started {ts}"})
+    sessions[session] = {"thread_id": event_id, "started": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    save_sessions(sessions_path, sessions)
+    return event_id
+
+
+def send_message(msg_type, text, thread_id, config):
+    user = config["MATRIX_NOTIFY_USER"]
+    body = {
+        "msgtype": "m.text",
+        "body": f"[{msg_type}] {text}",
+        "m.relates_to": {"rel_type": "m.thread", "event_id": thread_id},
+    }
+    if msg_type == "alert":
+        body["format"] = "org.matrix.custom.html"
+        body["formatted_body"] = (
+            f"<b>[alert]</b> <a href='https://matrix.to/#/{user}'>{user}</a> {text}"
+        )
+    elif msg_type == "done":
+        body["format"] = "org.matrix.custom.html"
+        body["formatted_body"] = f"<b>[done]</b> {text}"
+    return _send_event(config, body)
+
+
+def setup():
+    print("\nmatrix-notify setup")
+    print("===================\n")
+
+    default_dir = str(Path.home() / ".matrix-cli")
+    raw = input(f"Step 0/5 — Config directory\n  Default: {default_dir}/\n  Press Enter to accept or type a different path: ").strip()
+    config_dir = Path(raw if raw else default_dir)
+    config_dir.mkdir(parents=True, exist_ok=True)
+    config_path = config_dir / "config"
+    print(f"  ✓ Config directory: {config_dir}/\n")
+
+    raw = input(f"Step 1/5 — Homeserver\n  Default: https://chat.mozilla.org\n  Press Enter to accept or type a different URL: ").strip()
+    homeserver = raw if raw else "https://chat.mozilla.org"
+    print(f"  ✓ MATRIX_HOMESERVER={homeserver}\n")
+
+    token = getpass.getpass("Step 2/5 — Access Token\n  Element → Settings → Help & About → Access Token\n  Paste token: ")
+    if not token:
+        sys.exit("Error: access token cannot be empty")
+    print("  ✓ MATRIX_ACCESS_TOKEN saved\n")
+
+    room_id = input("Step 3/5 — Room ID\n  Element → Room Settings → Advanced → Internal room ID (starts with !)\n  Paste room ID: ").strip()
+    if not room_id:
+        sys.exit("Error: room ID cannot be empty")
+    print(f"  ✓ MATRIX_ROOM_ID saved\n")
+
+    notify_user = input("Step 4/5 — Your Matrix user ID (e.g. @you:mozilla.org): ").strip()
+    if not notify_user:
+        sys.exit("Error: user ID cannot be empty")
+    print(f"  ✓ MATRIX_NOTIFY_USER saved\n")
+
+    config_path.write_text(
+        f"MATRIX_HOMESERVER={homeserver}\n"
+        f"MATRIX_ACCESS_TOKEN={token}\n"
+        f"MATRIX_ROOM_ID={room_id}\n"
+        f"MATRIX_NOTIFY_USER={notify_user}\n"
+    )
+
+    print(f"Config written to {config_dir}/")
+    print("Sending test message...", end=" ", flush=True)
+    config = load_config(str(config_path))
+    sessions_path = str(config_dir / "sessions.json")
+    thread_id = ensure_thread("setup-test", config, sessions_path)
+    send_message("log", "matrix-notify setup complete", thread_id, config)
+    print("✓\n")
+    print('Setup complete. Run: matrix-notify log "hello"')
+
+
+def main():
+    args = sys.argv[1:]
+    if not args or args[0] == "setup":
+        setup()
+        return
+    if len(args) < 2:
+        sys.exit("Usage: matrix-notify <log|alert|done> <message>")
+    msg_type, text = args[0], " ".join(args[1:])
+    if msg_type not in ("log", "alert", "done"):
+        sys.exit(f"Error: unknown type '{msg_type}', must be log, alert, or done")
+    config = load_config()
+    sessions_path = str(SESSIONS_PATH)
+    session = get_session_name()
+    thread_id = ensure_thread(session, config, sessions_path)
+    send_message(msg_type, text, thread_id, config)
+
+
+if __name__ == "__main__":
+    main()
