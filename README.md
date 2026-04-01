@@ -39,9 +39,11 @@ Or invoke it explicitly:
 matrix-notify setup
 ```
 
-This walks you through five steps (homeserver URL, bot access token, room ID, your Matrix user ID, and an optional test room) and writes credentials to `~/.matrix-cli/config` — outside the repo, never committed. The homeserver URL defaults to `https://mozilla.modular.im` if you press Enter. All inputs are validated and setup loops until a valid value is entered — it will not exit on a blank or malformed answer. The access token input is hidden while you type. The room ID must match the `!localpart:server` format — after it is saved, setup automatically attempts to join the bot to the room and sends a confirmation message to the room so you can verify it is working. For your Matrix user ID, setup prompts repeatedly until a valid `@username:homeserver` value is entered.
+This walks you through six steps (homeserver URL, bot access token, your Matrix user ID, notification room, optional test room, and install location) and writes credentials to `~/.matrix-cli/config` — outside the repo, never committed. The homeserver URL defaults to `https://mozilla.modular.im` if you press Enter. All inputs are validated and setup loops until a valid value is entered — it will not exit on a blank or malformed answer. The access token input is hidden while you type. For your Matrix user ID, setup prompts repeatedly until a valid `@username:homeserver` value is entered.
 
-After saving your Matrix user ID, setup prompts for an optional test room ID used by integration tests. Press Enter to have a private room named "matrix-notify tests" created automatically, or paste an existing `!localpart:server` room ID. If auto-creation succeeds, `MATRIX_TEST_ROOM_ID` is written to the config file alongside the other credentials. If you skip this step or creation fails, the test room entry is omitted and integration tests that require it will be skipped.
+Setup then automatically creates a private Matrix room named "matrix-notify" for notifications and invites your Matrix user ID to it. You must accept the invite in Element before pressing Enter to continue — once you do, the bot sends a confirmation message to the room so you can verify it is working.
+
+After the notification room is set up, setup prompts for an optional test room ID used by integration tests. Press Enter to have a private room named "matrix-notify tests" created automatically, or paste an existing `!localpart:server` room ID. If auto-creation succeeds, `MATRIX_TEST_ROOM_ID` is written to the config file alongside the other credentials. If you skip this step or creation fails, the test room entry is omitted and integration tests that require it will be skipped.
 
 ### Getting the credentials
 
@@ -49,15 +51,11 @@ After saving your Matrix user ID, setup prompts for an optional test room ID use
 |------|-----------------|
 | Homeserver URL | Element → Settings → Help & About → Homeserver |
 | Bot access token | Log into Element as the bot → Settings → Help & About → Access Token |
-| Room ID | Open the private room → Room Settings → Advanced → Internal room ID (starts with `!`) |
 | Your Matrix user ID | Element → Settings → Account (shown as `@username:homeserver`) |
 
 ### Room setup (one-time)
 
-1. Log into Element as your primary account
-2. Create a private room and copy the room ID from Room Settings → Advanced
-3. Run `matrix-notify setup` and paste the room ID when prompted
-4. If the bot isn't in the room yet, setup will print "failed (not invited)" and pause — invite the bot in Element, then press Enter to retry
+Setup creates the notification room automatically — no manual room creation required. When prompted, accept the invite in Element and press Enter.
 
 ## Usage
 

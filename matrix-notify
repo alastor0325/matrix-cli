@@ -207,37 +207,7 @@ def setup():
             break
     print("  ✓ MATRIX_ACCESS_TOKEN saved\n")
 
-    print("Step 3/6 — Room ID")
-    print("  Find it in Element: Room Settings → Advanced → Internal room ID")
-    while True:
-        room_id = input("  Room ID (e.g. !abc:mozilla.org): ").strip()
-        if not room_id:
-            print("  ! Cannot be empty, please try again")
-        elif not room_id.startswith("!") or ":" not in room_id:
-            print(f"  ! Must start with ! and contain : (got '{room_id}'), please try again")
-        else:
-            break
-    print(f"  ✓ MATRIX_ROOM_ID saved")
-    join_url = f"{homeserver}/_matrix/client/v3/join/{requests.utils.quote(room_id, safe='')}"
-    join_headers = {"Authorization": f"Bearer {token}"}
-    while True:
-        print("  Joining room...", end=" ", flush=True)
-        join_resp = requests.post(join_url, headers=join_headers)
-        if join_resp.status_code in (200, 201):
-            print("✓ Bot joined the room")
-            txn_id = str(uuid.uuid4())
-            hello_url = f"{homeserver}/_matrix/client/v3/rooms/{requests.utils.quote(room_id, safe='')}/send/m.room.message/{txn_id}"
-            requests.put(hello_url, headers=join_headers, json={"msgtype": "m.text", "body": "👋 matrix-notify is set up and ready."})
-            print()
-            break
-        elif join_resp.status_code == 403:
-            print(f"failed (not invited)")
-            input(f"  Invite @fdev-bot:mozilla.org to the room in Element, then press Enter to retry: ")
-        else:
-            print(f"skipped ({join_resp.json().get('error', join_resp.status_code)})\n")
-            break
-
-    print("Step 4/6 — Your Matrix user ID")
+    print("Step 3/6 — Your Matrix user ID")
     print("  Find it in Element: Settings → Account → your ID is shown as @username:homeserver")
     while True:
         notify_user = input("  User ID (e.g. @you:mozilla.org): ").strip()
@@ -249,7 +219,34 @@ def setup():
             break
     print(f"  ✓ MATRIX_NOTIFY_USER saved\n")
 
-    print("Step 4.5/6 — Test Room ID (optional)")
+    print("Step 4/6 — Notification room")
+    print("  Creating a private room for notifications...", end=" ", flush=True)
+    headers = {"Authorization": f"Bearer {token}"}
+    create_resp = requests.post(
+        f"{homeserver}/_matrix/client/v3/createRoom",
+        headers=headers,
+        json={"name": "matrix-notify", "preset": "private_chat", "visibility": "private"},
+    )
+    if create_resp.status_code != 200:
+        sys.exit(f"Error: could not create notification room: {create_resp.text}")
+    room_id = create_resp.json()["room_id"]
+    print(f"✓ {room_id}")
+    invite_resp = requests.post(
+        f"{homeserver}/_matrix/client/v3/rooms/{requests.utils.quote(room_id, safe='')}/invite",
+        headers=headers,
+        json={"user_id": notify_user},
+    )
+    if invite_resp.status_code == 200:
+        print(f"  ✓ Invited {notify_user}")
+    else:
+        print(f"  ! Could not invite {notify_user}: {invite_resp.json().get('error', invite_resp.status_code)}")
+    input(f"  Accept the invite in Element, then press Enter: ")
+    txn_id = str(uuid.uuid4())
+    hello_url = f"{homeserver}/_matrix/client/v3/rooms/{requests.utils.quote(room_id, safe='')}/send/m.room.message/{txn_id}"
+    requests.put(hello_url, headers=headers, json={"msgtype": "m.text", "body": "👋 matrix-notify is set up and ready."})
+    print()
+
+    print("Step 5/6 — Test Room ID (optional)")
     print("  A separate private room used by integration tests.")
     print("  Press Enter to have one created automatically.")
     test_room_id = input("  Test Room ID (or Enter to auto-create): ").strip()
@@ -257,13 +254,13 @@ def setup():
         print(f"  ! Invalid format, will auto-create instead")
         test_room_id = ""
     if not test_room_id:
-        create_resp = requests.post(
+        create_test_resp = requests.post(
             f"{homeserver}/_matrix/client/v3/createRoom",
-            headers={"Authorization": f"Bearer {token}"},
+            headers=headers,
             json={"name": "matrix-notify tests", "preset": "private_chat", "visibility": "private"},
         )
-        if create_resp.status_code == 200:
-            test_room_id = create_resp.json()["room_id"]
+        if create_test_resp.status_code == 200:
+            test_room_id = create_test_resp.json()["room_id"]
             print(f"  ✓ Test room created: {test_room_id}\n")
         else:
             print(f"  ! Could not create test room, skipping\n")
@@ -281,7 +278,7 @@ def setup():
     config_path.write_text(config_content)
 
     default_bin = str(_default_bin_dir())
-    raw = input(f"Step 5/6 — Install location\n  Default: {default_bin}\n  Press Enter to accept or type a different path: ").strip()
+    raw = input(f"Step 6/6 — Install location\n  Default: {default_bin}\n  Press Enter to accept or type a different path: ").strip()
     bin_dir = Path(raw if raw else default_bin)
     bin_dir_result = install_to_path(bin_dir=bin_dir)
     if sys.platform == "win32":
