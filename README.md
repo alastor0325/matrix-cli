@@ -69,6 +69,14 @@ matrix-notify done  "Bug 1000000 fully landed"
 
 Session name is auto-detected from the current tmux session name if available, or falls back to `hostname-PID`. tmux is not required.
 
+## Development setup
+
+After cloning, install the git hooks:
+
+```bash
+./scripts/install-hooks.sh
+```
+
 ## Development
 
 ```bash
