@@ -69,14 +69,6 @@ matrix-notify done  "Bug 1000000 fully landed"
 
 Session name is auto-detected from the current tmux session name if available, or falls back to `hostname-PID`. tmux is not required.
 
-## Development setup
-
-After cloning, install the git hooks:
-
-```bash
-./scripts/install-hooks.sh
-```
-
 ## Development
 
 ```bash
@@ -86,6 +78,6 @@ pytest --cov              # coverage report
 pytest tests/unit/ --watch  # watch mode during dev
 ```
 
-A pre-commit hook runs the unit suite automatically on every commit. Integration tests run if `~/.matrix-cli/config` is present.
+A pre-commit hook runs the unit suite automatically on every commit. Integration tests run if `~/.matrix-cli/config` is present. The hook is enabled automatically when you run `matrix-notify setup` (it sets `core.hooksPath` to the repo's `scripts/` directory).
 
 See [CLAUDE.md](CLAUDE.md) for TDD rules.

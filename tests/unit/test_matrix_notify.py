@@ -270,6 +270,39 @@ class TestMatrixAPI:
 
 
 # ---------------------------------------------------------------------------
+# git hooks auto-configuration
+# ---------------------------------------------------------------------------
+
+class TestGitHooksSetup:
+    def test_git_hooks_path_configured_during_setup(self, tmp_path):
+        _load()
+        repo_dir = tmp_path / "repo"
+        repo_dir.mkdir()
+        (repo_dir / ".git").mkdir()
+        fake_script = repo_dir / "matrix-notify"
+        fake_script.write_text("")
+
+        # input() call order: config dir, homeserver, room id, user id, install dir
+        # Use tmp_path for config dir to avoid writing to real ~/.matrix-cli/
+        inputs = iter([str(tmp_path / "config"), "", "!room:m.org", "@you:m.org", ""])
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = {"event_id": "$e:m.org"}
+
+        with patch.object(matrix_notify, "_script_path", return_value=fake_script):
+            with patch("subprocess.call") as mock_call:
+                with patch("subprocess.check_call"):
+                    with patch.object(matrix_notify, "install_to_path"):
+                        with patch("builtins.input", side_effect=inputs):
+                            with patch("getpass.getpass", return_value="tok"):
+                                with patch("requests.put", return_value=mock_resp):
+                                    matrix_notify.setup()
+        git_calls = [c for c in mock_call.call_args_list
+                     if c[0][0][:3] == ["git", "config", "core.hooksPath"]]
+        assert len(git_calls) == 1
+        assert git_calls[0][0][0] == ["git", "config", "core.hooksPath", "scripts"]
+
+
+# ---------------------------------------------------------------------------
 # Auto-setup when config is missing
 # ---------------------------------------------------------------------------
 

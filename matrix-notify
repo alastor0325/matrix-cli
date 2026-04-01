@@ -222,6 +222,14 @@ def setup():
             print(f'      export PATH="{bin_dir_result}:$PATH"')
     print()
 
+    # Point git to the tracked hooks directory so pre-commit runs automatically
+    repo_dir = _script_path().parent
+    if (repo_dir / ".git").exists():
+        subprocess.call(
+            ["git", "config", "core.hooksPath", "scripts"],
+            cwd=str(repo_dir),
+        )
+
     print(f"Config written to {config_dir}/")
     print("Sending test message...", end=" ", flush=True)
     config = load_config(str(config_path))
