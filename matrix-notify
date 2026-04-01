@@ -220,12 +220,14 @@ def setup():
     print(f"  ✓ MATRIX_NOTIFY_USER saved\n")
 
     print("Step 4/6 — Notification room")
-    print("  Creating a private room for notifications...", end=" ", flush=True)
+    raw = input("  Default room name: matrix-notify\n  Press Enter to accept or type a different name: ").strip()
+    room_name = raw if raw else "matrix-notify"
+    print(f"  Creating '{room_name}'...", end=" ", flush=True)
     headers = {"Authorization": f"Bearer {token}"}
     create_resp = requests.post(
         f"{homeserver}/_matrix/client/v3/createRoom",
         headers=headers,
-        json={"name": "matrix-notify", "preset": "private_chat", "visibility": "private"},
+        json={"name": room_name, "preset": "private_chat", "visibility": "private"},
     )
     if create_resp.status_code != 200:
         sys.exit(f"Error: could not create notification room: {create_resp.text}")

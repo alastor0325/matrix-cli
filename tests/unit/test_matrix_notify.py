@@ -276,7 +276,7 @@ class TestMatrixAPI:
 class TestBotRoomSetup:
     def _base_inputs(self, tmp_path):
         # config_dir, homeserver(default), user_id, accept_invite, test_room(auto), install_dir(default)
-        return [str(tmp_path), "", "@you:m.org", "", "", ""]
+        return [str(tmp_path), "", "@you:m.org", "", "", "", ""]
 
     def _mock_put(self, event_id="$e:m.org"):
         m = MagicMock(status_code=200)
@@ -367,7 +367,7 @@ class TestSetupValidation:
                 raise OSError("permission denied")
             return original_mkdir(self, *args, **kwargs)
 
-        inputs = iter(["bad/path", str(config_dir), "", "@you:m.org", "", "", ""])
+        inputs = iter(["bad/path", str(config_dir), "", "@you:m.org", "", "", "", ""])
         with patch.object(Path, "mkdir", mkdir_side_effect):
             with patch("subprocess.call"):
                 with patch("subprocess.check_call"):
@@ -380,28 +380,28 @@ class TestSetupValidation:
 
     # Step 1 — homeserver
     def test_step1_retries_on_invalid_url(self, tmp_path):
-        inputs = [str(tmp_path), "not-a-url", "https://example.org", "@you:m.org", "", "", ""]
+        inputs = [str(tmp_path), "not-a-url", "https://example.org", "@you:m.org", "", "", "", ""]
         _run_setup(inputs)
 
     def test_step1_accepts_default(self, tmp_path):
-        inputs = [str(tmp_path), "", "@you:m.org", "", "", ""]
+        inputs = [str(tmp_path), "", "@you:m.org", "", "", "", ""]
         _run_setup(inputs)
 
     # Step 2 — access token
     def test_step2_strips_ansi_escape_residue(self, tmp_path):
-        inputs = [str(tmp_path), "", "@you:m.org", "", "", ""]
+        inputs = [str(tmp_path), "", "@you:m.org", "", "", "", ""]
         _run_setup(inputs, token="[C[C[Cmat_validtoken")
         config = {k: v for k, _, v in (l.partition("=") for l in (tmp_path / "config").read_text().splitlines() if "=" in l)}
         assert config["MATRIX_ACCESS_TOKEN"] == "mat_validtoken"
 
     def test_step2_strips_full_ansi_sequence(self, tmp_path):
-        inputs = [str(tmp_path), "", "@you:m.org", "", "", ""]
+        inputs = [str(tmp_path), "", "@you:m.org", "", "", "", ""]
         _run_setup(inputs, token="\x1b[Cmat_validtoken")
         config = {k: v for k, _, v in (l.partition("=") for l in (tmp_path / "config").read_text().splitlines() if "=" in l)}
         assert config["MATRIX_ACCESS_TOKEN"] == "mat_validtoken"
 
     def test_step2_retries_on_empty_token(self, tmp_path):
-        inputs = [str(tmp_path), "", "@you:m.org", "", "", ""]
+        inputs = [str(tmp_path), "", "@you:m.org", "", "", "", ""]
         _load()
         mock_put = MagicMock(status_code=200)
         mock_put.json.return_value = {"event_id": "$e:m.org"}
@@ -419,15 +419,15 @@ class TestSetupValidation:
 
     # Step 3 — user ID
     def test_step3_retries_on_empty_user_id(self, tmp_path):
-        inputs = [str(tmp_path), "", "", "@you:m.org", "", "", ""]
+        inputs = [str(tmp_path), "", "", "@you:m.org", "", "", "", ""]
         _run_setup(inputs)
 
     def test_step3_retries_on_missing_at(self, tmp_path):
-        inputs = [str(tmp_path), "", "you:m.org", "@you:m.org", "", "", ""]
+        inputs = [str(tmp_path), "", "you:m.org", "@you:m.org", "", "", "", ""]
         _run_setup(inputs)
 
     def test_step3_retries_on_missing_colon(self, tmp_path):
-        inputs = [str(tmp_path), "", "@youmorg", "@you:m.org", "", "", ""]
+        inputs = [str(tmp_path), "", "@youmorg", "@you:m.org", "", "", "", ""]
         _run_setup(inputs)
 
 
@@ -446,7 +446,7 @@ class TestGitHooksSetup:
 
         # input() call order: config dir, homeserver, user id, accept invite, test room id, install dir
         # Use tmp_path for config dir to avoid writing to real ~/.matrix-cli/
-        inputs = iter([str(tmp_path / "config"), "", "@you:m.org", "", "", ""])
+        inputs = iter([str(tmp_path / "config"), "", "@you:m.org", "", "", "", ""])
         mock_resp = MagicMock(status_code=200)
         mock_resp.json.return_value = {"event_id": "$e:m.org"}
         mock_post = MagicMock(status_code=200)
