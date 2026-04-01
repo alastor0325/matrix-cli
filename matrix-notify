@@ -2,6 +2,7 @@
 import getpass
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -14,6 +15,34 @@ import requests
 CONFIG_PATH = Path.home() / ".matrix-cli" / "config"
 SESSIONS_PATH = Path.home() / ".matrix-cli" / "sessions.json"
 REQUIRED_KEYS = ["MATRIX_HOMESERVER", "MATRIX_ACCESS_TOKEN", "MATRIX_ROOM_ID", "MATRIX_NOTIFY_USER"]
+
+
+def _script_path():
+    return Path(__file__).resolve()
+
+
+def _default_bin_dir():
+    if sys.platform == "win32":
+        return Path.home() / ".local" / "bin"
+    return Path.home() / ".local" / "bin"
+
+
+def install_to_path(bin_dir=None, script=None):
+    bin_dir = Path(bin_dir) if bin_dir else _default_bin_dir()
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    src = Path(script) if script else _script_path()
+
+    if sys.platform == "win32":
+        dest = bin_dir / "matrix-notify.bat"
+        dest.write_text(f'@echo off\npython "{src}" %*\n')
+    else:
+        dest = bin_dir / "matrix-notify"
+        if dest.is_symlink() or dest.exists():
+            dest.unlink()
+        dest.symlink_to(src)
+        src.chmod(0o755)
+
+    return bin_dir
 
 
 def load_config(path=None):
@@ -118,27 +147,27 @@ def setup():
     print("===================\n")
 
     default_dir = str(Path.home() / ".matrix-cli")
-    raw = input(f"Step 0/5 — Config directory\n  Default: {default_dir}/\n  Press Enter to accept or type a different path: ").strip()
+    raw = input(f"Step 0/6 — Config directory\n  Default: {default_dir}/\n  Press Enter to accept or type a different path: ").strip()
     config_dir = Path(raw if raw else default_dir)
     config_dir.mkdir(parents=True, exist_ok=True)
     config_path = config_dir / "config"
     print(f"  ✓ Config directory: {config_dir}/\n")
 
-    raw = input(f"Step 1/5 — Homeserver\n  Default: https://chat.mozilla.org\n  Press Enter to accept or type a different URL: ").strip()
+    raw = input(f"Step 1/6 — Homeserver\n  Default: https://chat.mozilla.org\n  Press Enter to accept or type a different URL: ").strip()
     homeserver = raw if raw else "https://chat.mozilla.org"
     print(f"  ✓ MATRIX_HOMESERVER={homeserver}\n")
 
-    token = getpass.getpass("Step 2/5 — Access Token\n  Element → Settings → Help & About → Access Token\n  Paste token: ")
+    token = getpass.getpass("Step 2/6 — Access Token\n  Element → Settings → Help & About → Access Token\n  Paste token: ")
     if not token:
         sys.exit("Error: access token cannot be empty")
     print("  ✓ MATRIX_ACCESS_TOKEN saved\n")
 
-    room_id = input("Step 3/5 — Room ID\n  Element → Room Settings → Advanced → Internal room ID (starts with !)\n  Paste room ID: ").strip()
+    room_id = input("Step 3/6 — Room ID\n  Element → Room Settings → Advanced → Internal room ID (starts with !)\n  Paste room ID: ").strip()
     if not room_id:
         sys.exit("Error: room ID cannot be empty")
     print(f"  ✓ MATRIX_ROOM_ID saved\n")
 
-    notify_user = input("Step 4/5 — Your Matrix user ID (e.g. @you:mozilla.org): ").strip()
+    notify_user = input("Step 4/6 — Your Matrix user ID (e.g. @you:mozilla.org): ").strip()
     if not notify_user:
         sys.exit("Error: user ID cannot be empty")
     print(f"  ✓ MATRIX_NOTIFY_USER saved\n")
@@ -149,6 +178,25 @@ def setup():
         f"MATRIX_ROOM_ID={room_id}\n"
         f"MATRIX_NOTIFY_USER={notify_user}\n"
     )
+
+    default_bin = str(_default_bin_dir())
+    raw = input(f"Step 5/6 — Install location\n  Default: {default_bin}\n  Press Enter to accept or type a different path: ").strip()
+    bin_dir = Path(raw if raw else default_bin)
+    bin_dir_result = install_to_path(bin_dir=bin_dir)
+    if sys.platform == "win32":
+        installed = bin_dir_result / "matrix-notify.bat"
+    else:
+        installed = bin_dir_result / "matrix-notify"
+    print(f"  ✓ Installed to {installed}")
+    path_dirs = os.environ.get("PATH", "").split(os.pathsep)
+    if str(bin_dir_result) not in path_dirs:
+        if sys.platform == "win32":
+            print(f"  ! Add {bin_dir_result} to your PATH (System Properties → Environment Variables)")
+        else:
+            shell_cfg = "~/.zshrc" if os.path.exists(os.path.expanduser("~/.zshrc")) else "~/.bashrc"
+            print(f"  ! Add to your shell config ({shell_cfg}):")
+            print(f'      export PATH="{bin_dir_result}:$PATH"')
+    print()
 
     print(f"Config written to {config_dir}/")
     print("Sending test message...", end=" ", flush=True)

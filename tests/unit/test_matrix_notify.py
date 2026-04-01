@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -266,3 +267,55 @@ class TestMatrixAPI:
         with patch("requests.put", return_value=err):
             with pytest.raises(SystemExit):
                 matrix_notify.send_message("log", "hi", "$root:mozilla.org", config)
+
+
+# ---------------------------------------------------------------------------
+# install_to_path — cross-platform PATH installation
+# ---------------------------------------------------------------------------
+
+class TestInstallToPath:
+    def _fake_script(self, tmp_path):
+        s = tmp_path / "matrix-notify"
+        s.write_text("#!/usr/bin/env python3\n")
+        s.chmod(0o644)
+        return s
+
+    def test_unix_creates_symlink_in_local_bin(self, tmp_path):
+        _load()
+        src = self._fake_script(tmp_path)
+        bin_dir = tmp_path / "bin"
+        with patch("sys.platform", "linux"):
+            with patch.object(matrix_notify, "_script_path", return_value=src):
+                matrix_notify.install_to_path(bin_dir=bin_dir)
+        link = bin_dir / "matrix-notify"
+        assert link.is_symlink()
+        assert link.resolve() == src.resolve()
+
+    def test_unix_bin_dir_created_if_missing(self, tmp_path):
+        _load()
+        src = self._fake_script(tmp_path)
+        bin_dir = tmp_path / "newdir" / "bin"
+        assert not bin_dir.exists()
+        with patch("sys.platform", "darwin"):
+            with patch.object(matrix_notify, "_script_path", return_value=src):
+                matrix_notify.install_to_path(bin_dir=bin_dir)
+        assert bin_dir.exists()
+
+    def test_windows_creates_bat_wrapper(self, tmp_path):
+        _load()
+        bin_dir = tmp_path / "bin"
+        script = self._fake_script(tmp_path)
+        with patch("sys.platform", "win32"):
+            matrix_notify.install_to_path(bin_dir=bin_dir, script=script)
+        bat = bin_dir / "matrix-notify.bat"
+        assert bat.exists()
+        assert "python" in bat.read_text().lower()
+
+    def test_returns_bin_dir(self, tmp_path):
+        _load()
+        src = self._fake_script(tmp_path)
+        bin_dir = tmp_path / "bin"
+        with patch("sys.platform", "linux"):
+            with patch.object(matrix_notify, "_script_path", return_value=src):
+                result = matrix_notify.install_to_path(bin_dir=bin_dir)
+        assert result == bin_dir
