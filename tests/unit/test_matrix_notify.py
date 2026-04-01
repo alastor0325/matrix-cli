@@ -376,6 +376,23 @@ class TestSetupValidation:
         _run_setup(inputs)
 
     # Step 2 — access token
+    def test_step2_strips_ansi_escape_residue(self, tmp_path):
+        # Simulate paste with arrow-key escape sequences: ESC stripped by getpass
+        # but leaves '[C[C[C' (printable bracket+letter pairs) before the token
+        inputs = [str(tmp_path), "", "!room:m.org", "@you:m.org", "", ""]
+        _run_setup(inputs, token="[C[C[Cmat_validtoken")
+        config_path = tmp_path / "config"
+        config = {k: v for k, _, v in (l.partition("=") for l in config_path.read_text().splitlines() if "=" in l)}
+        assert config["MATRIX_ACCESS_TOKEN"] == "mat_validtoken"
+
+    def test_step2_strips_full_ansi_sequence(self, tmp_path):
+        # ESC+[+C survives intact through getpass in some terminals
+        inputs = [str(tmp_path), "", "!room:m.org", "@you:m.org", "", ""]
+        _run_setup(inputs, token="\x1b[Cmat_validtoken")
+        config_path = tmp_path / "config"
+        config = {k: v for k, _, v in (l.partition("=") for l in config_path.read_text().splitlines() if "=" in l)}
+        assert config["MATRIX_ACCESS_TOKEN"] == "mat_validtoken"
+
     def test_step2_retries_on_empty_token(self, tmp_path):
         inputs = [str(tmp_path), "", "!room:m.org", "@you:m.org", "", ""]
         _load()
