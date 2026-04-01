@@ -10,9 +10,9 @@ The session name is taken from the current tmux session if available, or falls b
 
 ```
 my-bot  [session-name] started 2026-04-01 10:00
-  └─ [log]   CI analysis done: 3 Tier 1 failures need fixing
-  └─ [alert] @you Approval needed: D123456 waiting for r+
-  └─ [done]  Bug 1962876 fully landed
+  └─ [log]   CI analysis done: 3 failures need fixing
+  └─ [alert] @you Approval needed: D100000 waiting for r+
+  └─ [done]  Bug 1000000 fully landed
 ```
 
 ## Setup
@@ -54,7 +54,7 @@ This walks you through four steps (homeserver, bot access token, room ID, your M
 ```bash
 matrix-notify log   "CI analysis done: 3 failures need fixing"
 matrix-notify alert "Approval needed: D123456 waiting for r+"
-matrix-notify done  "Bug 1962876 fully landed"
+matrix-notify done  "Bug 1000000 fully landed"
 ```
 
 - `log` — plain text progress update
