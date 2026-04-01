@@ -314,33 +314,53 @@ class TestInstallToPath:
         s.chmod(0o644)
         return s
 
-    def test_unix_creates_symlink_in_local_bin(self, tmp_path):
+    def _fake_venv(self, tmp_path):
+        venv_dir = tmp_path / ".venv"
+        bin_dir = venv_dir / "bin"
+        bin_dir.mkdir(parents=True)
+        python = bin_dir / "python3"
+        python.write_text("#!/bin/sh\nexec python3 \"$@\"\n")
+        python.chmod(0o755)
+        return venv_dir
+
+    def test_unix_creates_wrapper_in_local_bin(self, tmp_path):
         _load()
         src = self._fake_script(tmp_path)
         bin_dir = tmp_path / "bin"
+        venv_dir = self._fake_venv(tmp_path)
         with patch("sys.platform", "linux"):
             with patch.object(matrix_notify, "_script_path", return_value=src):
-                matrix_notify.install_to_path(bin_dir=bin_dir)
-        link = bin_dir / "matrix-notify"
-        assert link.is_symlink()
-        assert link.resolve() == src.resolve()
+                with patch.object(matrix_notify, "_setup_venv", return_value=venv_dir):
+                    matrix_notify.install_to_path(bin_dir=bin_dir, venv_dir=venv_dir)
+        wrapper = bin_dir / "matrix-notify"
+        assert wrapper.exists()
+        assert not wrapper.is_symlink()
+        content = wrapper.read_text()
+        assert str(src) in content
+        assert "python3" in content
 
     def test_unix_bin_dir_created_if_missing(self, tmp_path):
         _load()
         src = self._fake_script(tmp_path)
         bin_dir = tmp_path / "newdir" / "bin"
+        venv_dir = self._fake_venv(tmp_path)
         assert not bin_dir.exists()
         with patch("sys.platform", "darwin"):
             with patch.object(matrix_notify, "_script_path", return_value=src):
-                matrix_notify.install_to_path(bin_dir=bin_dir)
+                with patch.object(matrix_notify, "_setup_venv", return_value=venv_dir):
+                    matrix_notify.install_to_path(bin_dir=bin_dir, venv_dir=venv_dir)
         assert bin_dir.exists()
 
     def test_windows_creates_bat_wrapper(self, tmp_path):
         _load()
         bin_dir = tmp_path / "bin"
         script = self._fake_script(tmp_path)
+        venv_dir = tmp_path / ".venv"
+        (venv_dir / "Scripts").mkdir(parents=True)
+        (venv_dir / "Scripts" / "python.exe").write_text("")
         with patch("sys.platform", "win32"):
-            matrix_notify.install_to_path(bin_dir=bin_dir, script=script)
+            with patch.object(matrix_notify, "_setup_venv", return_value=venv_dir):
+                matrix_notify.install_to_path(bin_dir=bin_dir, script=script, venv_dir=venv_dir)
         bat = bin_dir / "matrix-notify.bat"
         assert bat.exists()
         assert "python" in bat.read_text().lower()
@@ -349,7 +369,9 @@ class TestInstallToPath:
         _load()
         src = self._fake_script(tmp_path)
         bin_dir = tmp_path / "bin"
+        venv_dir = self._fake_venv(tmp_path)
         with patch("sys.platform", "linux"):
             with patch.object(matrix_notify, "_script_path", return_value=src):
-                result = matrix_notify.install_to_path(bin_dir=bin_dir)
+                with patch.object(matrix_notify, "_setup_venv", return_value=venv_dir):
+                    result = matrix_notify.install_to_path(bin_dir=bin_dir, venv_dir=venv_dir)
         assert result == bin_dir

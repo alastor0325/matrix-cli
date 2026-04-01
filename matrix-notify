@@ -10,7 +10,10 @@ import time
 import uuid
 from pathlib import Path
 
-import requests
+try:
+    import requests
+except ImportError:
+    sys.exit("Error: 'requests' is not installed.\nRun: pip3 install requests")
 
 CONFIG_PATH = Path.home() / ".matrix-cli" / "config"
 SESSIONS_PATH = Path.home() / ".matrix-cli" / "sessions.json"
@@ -22,25 +25,46 @@ def _script_path():
 
 
 def _default_bin_dir():
-    if sys.platform == "win32":
-        return Path.home() / ".local" / "bin"
     return Path.home() / ".local" / "bin"
 
 
-def install_to_path(bin_dir=None, script=None):
+def _default_venv_dir():
+    return Path.home() / ".matrix-cli" / ".venv"
+
+
+def _setup_venv(venv_dir):
+    import venv as _venv
+    venv_dir = Path(venv_dir)
+    if not venv_dir.exists():
+        _venv.create(str(venv_dir), with_pip=True)
+    pip = venv_dir / ("Scripts" if sys.platform == "win32" else "bin") / "pip"
+    subprocess.check_call([str(pip), "install", "-q", "requests"])
+    return venv_dir
+
+
+def _venv_python(venv_dir):
+    venv_dir = Path(venv_dir)
+    if sys.platform == "win32":
+        return venv_dir / "Scripts" / "python.exe"
+    return venv_dir / "bin" / "python3"
+
+
+def install_to_path(bin_dir=None, script=None, venv_dir=None):
     bin_dir = Path(bin_dir) if bin_dir else _default_bin_dir()
     bin_dir.mkdir(parents=True, exist_ok=True)
     src = Path(script) if script else _script_path()
+    venv_dir = Path(venv_dir) if venv_dir else _default_venv_dir()
+
+    _setup_venv(venv_dir)
+    python = _venv_python(venv_dir)
 
     if sys.platform == "win32":
         dest = bin_dir / "matrix-notify.bat"
-        dest.write_text(f'@echo off\npython "{src}" %*\n')
+        dest.write_text(f'@echo off\n"{python}" "{src}" %*\n')
     else:
         dest = bin_dir / "matrix-notify"
-        if dest.is_symlink() or dest.exists():
-            dest.unlink()
-        dest.symlink_to(src)
-        src.chmod(0o755)
+        dest.write_text(f'#!/bin/sh\nexec "{python}" "{src}" "$@"\n')
+        dest.chmod(0o755)
 
     return bin_dir
 
