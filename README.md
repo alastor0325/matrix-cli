@@ -59,7 +59,7 @@ matrix-notify done  "Bug 1962876 fully landed"
 - `alert` — bold + @mention to trigger an Element notification
 - `done` — bold, marks a task complete
 
-Session name is auto-detected from the current tmux session. Falls back to `hostname-PID` outside tmux.
+Session name is auto-detected from the current tmux session name if available, or falls back to `hostname-PID`. tmux is not required.
 
 ## Development
 
