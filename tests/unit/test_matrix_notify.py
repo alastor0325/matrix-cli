@@ -270,6 +270,40 @@ class TestMatrixAPI:
 
 
 # ---------------------------------------------------------------------------
+# Auto-setup when config is missing
+# ---------------------------------------------------------------------------
+
+class TestAutoSetup:
+    def test_missing_config_triggers_setup(self, tmp_path):
+        _load()
+        with patch.object(matrix_notify, "CONFIG_PATH", tmp_path / "nonexistent"):
+            with patch.object(matrix_notify, "setup") as mock_setup:
+                with patch("sys.argv", ["matrix-notify", "log", "hello"]):
+                    matrix_notify.main()
+                    mock_setup.assert_called_once()
+
+    def test_present_config_does_not_trigger_setup(self, tmp_path):
+        _load()
+        cfg = tmp_path / "config"
+        cfg.write_text(
+            "MATRIX_HOMESERVER=https://chat.mozilla.org\n"
+            "MATRIX_ACCESS_TOKEN=tok\n"
+            "MATRIX_ROOM_ID=!abc:mozilla.org\n"
+            "MATRIX_NOTIFY_USER=@you:mozilla.org\n"
+        )
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"event_id": "$e:mozilla.org"}
+        with patch.object(matrix_notify, "CONFIG_PATH", cfg):
+            with patch.object(matrix_notify, "SESSIONS_PATH", tmp_path / "sessions.json"):
+                with patch.object(matrix_notify, "setup") as mock_setup:
+                    with patch("sys.argv", ["matrix-notify", "log", "hello"]):
+                        with patch("requests.put", return_value=mock_resp):
+                            matrix_notify.main()
+                            mock_setup.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # install_to_path — cross-platform PATH installation
 # ---------------------------------------------------------------------------
 

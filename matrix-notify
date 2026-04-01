@@ -213,6 +213,10 @@ def main():
     if not args or args[0] == "setup":
         setup()
         return
+    if not CONFIG_PATH.exists():
+        print("No config found — starting setup...\n")
+        setup()
+        return
     if len(args) < 2:
         sys.exit("Usage: matrix-notify <log|alert|done> <message>")
     msg_type, text = args[0], " ".join(args[1:])

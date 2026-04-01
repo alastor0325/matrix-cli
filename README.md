@@ -27,7 +27,13 @@ ln -s "$PWD/matrix-notify" ~/.local/bin/matrix-notify
 chmod +x matrix-notify
 ```
 
-Then run the interactive setup wizard:
+Run any `matrix-notify` command — if no config is found, setup starts automatically:
+
+```bash
+matrix-notify
+```
+
+Or invoke it explicitly:
 
 ```bash
 matrix-notify setup
