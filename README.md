@@ -9,7 +9,7 @@ Each tmux session gets its own Matrix thread. Multiple concurrent sessions (`bug
 ```
 my-bot  [session-name] started 2026-04-01 10:00
   └─ [log]   CI analysis done: 3 Tier 1 failures need fixing
-  └─ [alert] @alwu Approval needed: D123456 waiting for r+
+  └─ [alert] @you Approval needed: D123456 waiting for r+
   └─ [done]  Bug 1962876 fully landed
 ```
 
