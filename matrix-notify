@@ -177,10 +177,8 @@ def setup():
     config_path = config_dir / "config"
     print(f"  ✓ Config directory: {config_dir}/\n")
 
-    raw = input(f"Step 1/6 — Homeserver\n  Find it in Element: Settings → Help & About → Homeserver\n  URL: ").strip()
-    if not raw:
-        sys.exit("Error: homeserver URL cannot be empty")
-    homeserver = raw
+    raw = input(f"Step 1/6 — Homeserver\n  Find it in Element: Settings → Help & About → Homeserver\n  Default: https://mozilla.modular.im\n  Press Enter to accept or type a different URL: ").strip()
+    homeserver = raw if raw else "https://mozilla.modular.im"
     print(f"  ✓ MATRIX_HOMESERVER={homeserver}\n")
 
     token = getpass.getpass("Step 2/6 — Access Token\n  Element → Settings → Help & About → Access Token\n  Paste token: ")

@@ -284,7 +284,7 @@ class TestGitHooksSetup:
 
         # input() call order: config dir, homeserver, room id, user id, install dir
         # Use tmp_path for config dir to avoid writing to real ~/.matrix-cli/
-        inputs = iter([str(tmp_path / "config"), "https://example.org", "!room:m.org", "@you:m.org", ""])
+        inputs = iter([str(tmp_path / "config"), "", "!room:m.org", "@you:m.org", ""])
         mock_resp = MagicMock(status_code=200)
         mock_resp.json.return_value = {"event_id": "$e:m.org"}
 
