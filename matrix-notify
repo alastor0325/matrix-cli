@@ -218,19 +218,24 @@ def setup():
         else:
             break
     print(f"  ✓ MATRIX_ROOM_ID saved")
-    print("  Joining room...", end=" ", flush=True)
     join_url = f"{homeserver}/_matrix/client/v3/join/{requests.utils.quote(room_id, safe='')}"
-    join_resp = requests.post(join_url, headers={"Authorization": f"Bearer {token}"})
-    if join_resp.status_code in (200, 201):
-        print("✓ Bot joined the room")
-        txn_id = str(uuid.uuid4())
-        hello_url = f"{homeserver}/_matrix/client/v3/rooms/{requests.utils.quote(room_id, safe='')}/send/m.room.message/{txn_id}"
-        requests.put(hello_url, headers={"Authorization": f"Bearer {token}"}, json={"msgtype": "m.text", "body": "👋 matrix-notify is set up and ready."})
-        print()
-    elif join_resp.status_code == 403:
-        print(f"skipped (already a member or not invited)\n")
-    else:
-        print(f"skipped ({join_resp.json().get('error', join_resp.status_code)})\n")
+    join_headers = {"Authorization": f"Bearer {token}"}
+    while True:
+        print("  Joining room...", end=" ", flush=True)
+        join_resp = requests.post(join_url, headers=join_headers)
+        if join_resp.status_code in (200, 201):
+            print("✓ Bot joined the room")
+            txn_id = str(uuid.uuid4())
+            hello_url = f"{homeserver}/_matrix/client/v3/rooms/{requests.utils.quote(room_id, safe='')}/send/m.room.message/{txn_id}"
+            requests.put(hello_url, headers=join_headers, json={"msgtype": "m.text", "body": "👋 matrix-notify is set up and ready."})
+            print()
+            break
+        elif join_resp.status_code == 403:
+            print(f"failed (not invited)")
+            input(f"  Invite @fdev-bot:mozilla.org to the room in Element, then press Enter to retry: ")
+        else:
+            print(f"skipped ({join_resp.json().get('error', join_resp.status_code)})\n")
+            break
 
     print("Step 4/6 — Your Matrix user ID")
     print("  Find it in Element: Settings → Account → your ID is shown as @username:homeserver")

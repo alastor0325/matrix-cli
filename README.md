@@ -55,9 +55,9 @@ After saving your Matrix user ID, setup prompts for an optional test room ID use
 ### Room setup (one-time)
 
 1. Log into Element as your primary account
-2. Create a private room and invite the bot account
-3. Copy the room ID from Room Settings → Advanced
-4. Use it in `matrix-notify setup`
+2. Create a private room and copy the room ID from Room Settings → Advanced
+3. Run `matrix-notify setup` and paste the room ID when prompted
+4. If the bot isn't in the room yet, setup will print "failed (not invited)" and pause — invite the bot in Element, then press Enter to retry
 
 ## Usage
 

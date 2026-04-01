@@ -298,17 +298,25 @@ class TestBotAutoJoin:
         assert any("join" in url for url in urls)
         assert any("room" in url for url in urls)
 
-    def test_join_failure_does_not_block_setup(self, tmp_path):
+    def test_join_retries_on_403_until_invited(self, tmp_path):
         _load()
-        join_resp = MagicMock(status_code=403)
-        join_resp.json.return_value = {"errcode": "M_FORBIDDEN"}
+        forbidden = MagicMock(status_code=403)
+        forbidden.json.return_value = {"errcode": "M_FORBIDDEN"}
+        ok = MagicMock(status_code=200)
+        ok.json.return_value = {"room_id": "!room:m.org"}
+        # 403 twice, then success — inputs must include two retry prompts
+        base = self._base_inputs(tmp_path)
+        # insert two extra "" prompts for the retry input() calls after each 403
+        inputs = base[:3] + ["", ""] + base[3:]
         with patch("subprocess.call"), patch("subprocess.check_call"):
             with patch.object(matrix_notify, "install_to_path"):
-                with patch("builtins.input", side_effect=iter(self._base_inputs(tmp_path))):
+                with patch("builtins.input", side_effect=iter(inputs)):
                     with patch("getpass.getpass", return_value="tok"):
-                        with patch("requests.post", return_value=join_resp):
+                        with patch("requests.post", side_effect=[forbidden, forbidden, ok, ok]) as mock_post:
                             with patch("requests.put", return_value=self._mock_put()):
-                                matrix_notify.setup()  # should not raise
+                                matrix_notify.setup()
+        join_calls = [c for c in mock_post.call_args_list if "join" in c[0][0]]
+        assert len(join_calls) == 3
 
 
 # ---------------------------------------------------------------------------
