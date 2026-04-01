@@ -39,14 +39,16 @@ Or invoke it explicitly:
 matrix-notify setup
 ```
 
-This walks you through four steps (homeserver, bot access token, room ID, your Matrix user ID) and writes credentials to `~/.matrix-cli/config` — outside the repo, never committed.
+This walks you through four steps (homeserver URL, bot access token, room ID, your Matrix user ID) and writes credentials to `~/.matrix-cli/config` — outside the repo, never committed. All four values are required; setup exits with an error if any are left blank or invalid.
 
 ### Getting the credentials
 
 | What | Where to find it |
 |------|-----------------|
+| Homeserver URL | Element → Settings → Help & About → Homeserver |
 | Bot access token | Log into Element as the bot → Settings → Help & About → Access Token |
 | Room ID | Open the private room → Room Settings → Advanced → Internal room ID (starts with `!`) |
+| Your Matrix user ID | Must be in `@username:homeserver` format (e.g. `@you:mozilla.org`) |
 
 ### Room setup (one-time)
 

@@ -177,8 +177,10 @@ def setup():
     config_path = config_dir / "config"
     print(f"  ✓ Config directory: {config_dir}/\n")
 
-    raw = input(f"Step 1/6 — Homeserver\n  Default: https://chat.mozilla.org\n  Press Enter to accept or type a different URL: ").strip()
-    homeserver = raw if raw else "https://chat.mozilla.org"
+    raw = input(f"Step 1/6 — Homeserver\n  Find it in Element: Settings → Help & About → Homeserver\n  URL: ").strip()
+    if not raw:
+        sys.exit("Error: homeserver URL cannot be empty")
+    homeserver = raw
     print(f"  ✓ MATRIX_HOMESERVER={homeserver}\n")
 
     token = getpass.getpass("Step 2/6 — Access Token\n  Element → Settings → Help & About → Access Token\n  Paste token: ")
@@ -194,6 +196,8 @@ def setup():
     notify_user = input("Step 4/6 — Your Matrix user ID (e.g. @you:mozilla.org): ").strip()
     if not notify_user:
         sys.exit("Error: user ID cannot be empty")
+    if not notify_user.startswith("@") or ":" not in notify_user:
+        sys.exit(f"Error: user ID must be in the format @username:homeserver (got '{notify_user}')")
     print(f"  ✓ MATRIX_NOTIFY_USER saved\n")
 
     config_path.write_text(
