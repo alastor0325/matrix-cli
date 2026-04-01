@@ -1,13 +1,13 @@
 # matrix-notify
 
-A CLI tool that sends structured notifications to a Matrix private room, organized into per-session threads. Built for use with [firefox-manager](https://github.com/alastor0325/firefox-bug-investigation) to log agent progress and ping for approvals.
+A CLI tool that sends structured notifications to a Matrix private room, organized into per-session threads. Useful for any automated workflow that needs to log progress and ping for approvals.
 
 ## How it works
 
 Each tmux session gets its own Matrix thread. Multiple concurrent sessions (`bug-1234`, `bug-5678`) produce separate threads in the room, keeping their output visually isolated in Element.
 
 ```
-firefox-manager-bot  [bug-1962876] started 2026-04-01 10:00
+my-bot  [session-name] started 2026-04-01 10:00
   └─ [log]   CI analysis done: 3 Tier 1 failures need fixing
   └─ [alert] @alwu Approval needed: D123456 waiting for r+
   └─ [done]  Bug 1962876 fully landed
