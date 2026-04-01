@@ -185,6 +185,7 @@ class TestMessageFormatting:
             assert "<b>" in body["formatted_body"]
             assert "matrix.to" in body["formatted_body"]
             assert "@alwu:mozilla.org" in body["formatted_body"]
+            assert body["m.mentions"] == {"user_ids": ["@alwu:mozilla.org"]}
 
     def test_done_has_bold(self, tmp_path):
         _load()
