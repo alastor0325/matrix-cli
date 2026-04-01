@@ -4,7 +4,9 @@ A CLI tool that sends structured notifications to a Matrix private room, organiz
 
 ## How it works
 
-Each tmux session gets its own Matrix thread. Multiple concurrent sessions (`bug-1234`, `bug-5678`) produce separate threads in the room, keeping their output visually isolated in Element.
+Each named session gets its own Matrix thread. Multiple concurrent sessions (`bug-1234`, `bug-5678`) produce separate threads in the room, keeping their output visually isolated in Element.
+
+The session name is taken from the current tmux session if available, or falls back to `hostname-PID`. You can also pass any identifier as the session name — tmux is not required.
 
 ```
 my-bot  [session-name] started 2026-04-01 10:00
