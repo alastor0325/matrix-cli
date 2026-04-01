@@ -170,25 +170,50 @@ def setup():
     print("\nmatrix-notify setup")
     print("===================\n")
 
+    print("Step 0/6 — Config directory")
     default_dir = str(Path.home() / ".matrix-cli")
-    raw = input(f"Step 0/6 — Config directory\n  Default: {default_dir}/\n  Press Enter to accept or type a different path: ").strip()
-    config_dir = Path(raw if raw else default_dir)
-    config_dir.mkdir(parents=True, exist_ok=True)
+    while True:
+        raw = input(f"  Default: {default_dir}/\n  Press Enter to accept or type a different path: ").strip()
+        config_dir = Path(raw if raw else default_dir)
+        try:
+            config_dir.mkdir(parents=True, exist_ok=True)
+            break
+        except Exception as e:
+            print(f"  ! Could not create directory: {e}, please try again")
     config_path = config_dir / "config"
     print(f"  ✓ Config directory: {config_dir}/\n")
 
-    raw = input(f"Step 1/6 — Homeserver\n  Find it in Element: Settings → Help & About → Homeserver\n  Default: https://mozilla.modular.im\n  Press Enter to accept or type a different URL: ").strip()
-    homeserver = raw if raw else "https://mozilla.modular.im"
+    print("Step 1/6 — Homeserver")
+    print("  Find it in Element: Settings → Help & About → Homeserver")
+    while True:
+        raw = input("  Default: https://mozilla.modular.im\n  Press Enter to accept or type a different URL: ").strip()
+        homeserver = raw if raw else "https://mozilla.modular.im"
+        if not homeserver.startswith("http"):
+            print(f"  ! Must be a valid URL starting with http (got '{homeserver}'), please try again")
+        else:
+            break
     print(f"  ✓ MATRIX_HOMESERVER={homeserver}\n")
 
-    token = getpass.getpass("Step 2/6 — Access Token\n  Element → Settings → Help & About → Access Token\n  Paste token: ")
-    if not token:
-        sys.exit("Error: access token cannot be empty")
+    print("Step 2/6 — Access Token")
+    print("  Find it in Element: Settings → Help & About → Access Token")
+    while True:
+        token = getpass.getpass("  Paste token (input hidden): ")
+        if not token:
+            print("  ! Cannot be empty, please try again")
+        else:
+            break
     print("  ✓ MATRIX_ACCESS_TOKEN saved\n")
 
-    room_id = input("Step 3/6 — Room ID\n  Element → Room Settings → Advanced → Internal room ID (starts with !)\n  Paste room ID: ").strip()
-    if not room_id:
-        sys.exit("Error: room ID cannot be empty")
+    print("Step 3/6 — Room ID")
+    print("  Find it in Element: Room Settings → Advanced → Internal room ID")
+    while True:
+        room_id = input("  Room ID (e.g. !abc:mozilla.org): ").strip()
+        if not room_id:
+            print("  ! Cannot be empty, please try again")
+        elif not room_id.startswith("!") or ":" not in room_id:
+            print(f"  ! Must start with ! and contain : (got '{room_id}'), please try again")
+        else:
+            break
     print(f"  ✓ MATRIX_ROOM_ID saved\n")
 
     print("Step 4/6 — Your Matrix user ID")

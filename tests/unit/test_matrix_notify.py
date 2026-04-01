@@ -270,6 +270,102 @@ class TestMatrixAPI:
 
 
 # ---------------------------------------------------------------------------
+# Setup input validation — all steps loop on invalid input
+# ---------------------------------------------------------------------------
+
+def _run_setup(inputs, token="tok", tmp_path=None):
+    """Helper: run setup() with mocked inputs, returns without error if successful."""
+    _load()
+    mock_resp = MagicMock(status_code=200)
+    mock_resp.json.return_value = {"event_id": "$e:m.org"}
+    it = iter(inputs)
+    with patch.object(matrix_notify, "_script_path", return_value=Path("/fake/script")):
+        with patch("subprocess.call"):
+            with patch("subprocess.check_call"):
+                with patch.object(matrix_notify, "install_to_path"):
+                    with patch("builtins.input", side_effect=it):
+                        with patch("getpass.getpass", return_value=token):
+                            with patch("requests.put", return_value=mock_resp):
+                                matrix_notify.setup()
+
+
+class TestSetupValidation:
+    # Step 0 — config directory
+    def test_step0_retries_on_bad_path(self, tmp_path):
+        # First input is an unwritable path (mocked to fail), second is valid
+        _load()
+        config_dir = tmp_path / "cfg"
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = {"event_id": "$e:m.org"}
+        call_count = 0
+        original_mkdir = Path.mkdir
+
+        def mkdir_side_effect(self, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise OSError("permission denied")
+            return original_mkdir(self, *args, **kwargs)
+
+        inputs = iter(["bad/path", str(config_dir), "", "!room:m.org", "@you:m.org", ""])
+        with patch.object(Path, "mkdir", mkdir_side_effect):
+            with patch("subprocess.call"):
+                with patch("subprocess.check_call"):
+                    with patch.object(matrix_notify, "install_to_path"):
+                        with patch("builtins.input", side_effect=inputs):
+                            with patch("getpass.getpass", return_value="tok"):
+                                with patch("requests.put", return_value=mock_resp):
+                                    matrix_notify.setup()
+
+    # Step 1 — homeserver
+    def test_step1_retries_on_invalid_url(self, tmp_path):
+        # invalid URL first, then valid
+        inputs = [str(tmp_path), "not-a-url", "https://example.org", "!room:m.org", "@you:m.org", ""]
+        _run_setup(inputs)
+
+    def test_step1_accepts_default(self, tmp_path):
+        inputs = [str(tmp_path), "", "!room:m.org", "@you:m.org", ""]
+        _run_setup(inputs)
+
+    # Step 2 — access token
+    def test_step2_retries_on_empty_token(self, tmp_path):
+        inputs = [str(tmp_path), "", "!room:m.org", "@you:m.org", ""]
+        _load()
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = {"event_id": "$e:m.org"}
+        tokens = iter(["", "", "valid-token"])
+        with patch("subprocess.call"):
+            with patch("subprocess.check_call"):
+                with patch.object(matrix_notify, "install_to_path"):
+                    with patch("builtins.input", side_effect=iter(inputs)):
+                        with patch("getpass.getpass", side_effect=tokens):
+                            with patch("requests.put", return_value=mock_resp):
+                                matrix_notify.setup()
+
+    # Step 3 — room ID
+    def test_step3_retries_on_empty_room_id(self, tmp_path):
+        inputs = [str(tmp_path), "", "", "!room:m.org", "@you:m.org", ""]
+        _run_setup(inputs)
+
+    def test_step3_retries_on_invalid_format(self, tmp_path):
+        inputs = [str(tmp_path), "", "notaroomid", "!room:m.org", "@you:m.org", ""]
+        _run_setup(inputs)
+
+    # Step 4 — user ID
+    def test_step4_retries_on_empty_user_id(self, tmp_path):
+        inputs = [str(tmp_path), "", "!room:m.org", "", "@you:m.org", ""]
+        _run_setup(inputs)
+
+    def test_step4_retries_on_missing_at(self, tmp_path):
+        inputs = [str(tmp_path), "", "!room:m.org", "you:m.org", "@you:m.org", ""]
+        _run_setup(inputs)
+
+    def test_step4_retries_on_missing_colon(self, tmp_path):
+        inputs = [str(tmp_path), "", "!room:m.org", "@youmorg", "@you:m.org", ""]
+        _run_setup(inputs)
+
+
+# ---------------------------------------------------------------------------
 # git hooks auto-configuration
 # ---------------------------------------------------------------------------
 
