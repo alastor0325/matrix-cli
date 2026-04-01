@@ -214,7 +214,16 @@ def setup():
             print(f"  ! Must start with ! and contain : (got '{room_id}'), please try again")
         else:
             break
-    print(f"  ✓ MATRIX_ROOM_ID saved\n")
+    print(f"  ✓ MATRIX_ROOM_ID saved")
+    print("  Joining room...", end=" ", flush=True)
+    join_url = f"{homeserver}/_matrix/client/v3/join/{requests.utils.quote(room_id, safe='')}"
+    join_resp = requests.post(join_url, headers={"Authorization": f"Bearer {token}"})
+    if join_resp.status_code in (200, 201):
+        print("✓ Bot joined the room\n")
+    elif join_resp.status_code == 403:
+        print(f"skipped (already a member or not invited)\n")
+    else:
+        print(f"skipped ({join_resp.json().get('error', join_resp.status_code)})\n")
 
     print("Step 4/6 — Your Matrix user ID")
     print("  Find it in Element: Settings → Account → your ID is shown as @username:homeserver")

@@ -270,14 +270,58 @@ class TestMatrixAPI:
 
 
 # ---------------------------------------------------------------------------
+# Bot auto-join during setup
+# ---------------------------------------------------------------------------
+
+class TestBotAutoJoin:
+    def _base_inputs(self, tmp_path):
+        return [str(tmp_path), "", "!room:m.org", "@you:m.org", ""]
+
+    def _mock_put(self, event_id="$e:m.org"):
+        m = MagicMock(status_code=200)
+        m.json.return_value = {"event_id": event_id}
+        return m
+
+    def test_join_called_with_room_id(self, tmp_path):
+        _load()
+        join_resp = MagicMock(status_code=200)
+        join_resp.json.return_value = {"room_id": "!room:m.org"}
+        with patch("subprocess.call"), patch("subprocess.check_call"):
+            with patch.object(matrix_notify, "install_to_path"):
+                with patch("builtins.input", side_effect=iter(self._base_inputs(tmp_path))):
+                    with patch("getpass.getpass", return_value="tok"):
+                        with patch("requests.post", return_value=join_resp) as mock_post:
+                            with patch("requests.put", return_value=self._mock_put()):
+                                matrix_notify.setup()
+        assert mock_post.called
+        url = mock_post.call_args[0][0]
+        assert "join" in url
+        assert "room" in url  # room_id encoded in URL
+
+    def test_join_failure_does_not_block_setup(self, tmp_path):
+        _load()
+        join_resp = MagicMock(status_code=403)
+        join_resp.json.return_value = {"errcode": "M_FORBIDDEN"}
+        with patch("subprocess.call"), patch("subprocess.check_call"):
+            with patch.object(matrix_notify, "install_to_path"):
+                with patch("builtins.input", side_effect=iter(self._base_inputs(tmp_path))):
+                    with patch("getpass.getpass", return_value="tok"):
+                        with patch("requests.post", return_value=join_resp):
+                            with patch("requests.put", return_value=self._mock_put()):
+                                matrix_notify.setup()  # should not raise
+
+
+# ---------------------------------------------------------------------------
 # Setup input validation — all steps loop on invalid input
 # ---------------------------------------------------------------------------
 
 def _run_setup(inputs, token="tok", tmp_path=None):
     """Helper: run setup() with mocked inputs, returns without error if successful."""
     _load()
-    mock_resp = MagicMock(status_code=200)
-    mock_resp.json.return_value = {"event_id": "$e:m.org"}
+    mock_put = MagicMock(status_code=200)
+    mock_put.json.return_value = {"event_id": "$e:m.org"}
+    mock_post = MagicMock(status_code=200)
+    mock_post.json.return_value = {"room_id": "!room:m.org"}
     it = iter(inputs)
     with patch.object(matrix_notify, "_script_path", return_value=Path("/fake/script")):
         with patch("subprocess.call"):
@@ -285,8 +329,9 @@ def _run_setup(inputs, token="tok", tmp_path=None):
                 with patch.object(matrix_notify, "install_to_path"):
                     with patch("builtins.input", side_effect=it):
                         with patch("getpass.getpass", return_value=token):
-                            with patch("requests.put", return_value=mock_resp):
-                                matrix_notify.setup()
+                            with patch("requests.put", return_value=mock_put):
+                                with patch("requests.post", return_value=mock_post):
+                                    matrix_notify.setup()
 
 
 class TestSetupValidation:
