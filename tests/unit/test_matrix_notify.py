@@ -69,9 +69,8 @@ class TestGetSessionName:
         _load()
         with patch("subprocess.check_output", side_effect=Exception("no tmux")):
             with patch("socket.gethostname", return_value="mymac"):
-                with patch("os.getpid", return_value=42):
-                    result = matrix_notify.get_session_name()
-                    assert result == "mymac-42"
+                result = matrix_notify.get_session_name()
+                assert result == "mymac"
 
 
 # ---------------------------------------------------------------------------
