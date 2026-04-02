@@ -7,6 +7,7 @@ Usage:
   matrix-cli notify <type> <message>   send a notification (type: log, alert, done)
   matrix-cli listen [--daemon]         start the incoming-message listener
   matrix-cli forward <message>         print a [matrix]-prefixed message for shell forwarding
+  matrix-cli handle-forward <message>  send handshake then print [matrix]-prefixed message
 """
 import getpass
 import json
@@ -230,6 +231,14 @@ def _process_sync_events(data, notify_user, sessions_path=None):
     return results
 
 
+def _send_handshake(session_name, text, config, sessions_path):
+    try:
+        thread_id = ensure_thread(session_name, config, sessions_path)
+        send_message("log", f"Received: {text}", thread_id, config)
+    except Exception:
+        pass
+
+
 def _forward_to_tmux(session_name, text):
     """Submit a [matrix]-prefixed message to a tmux session as user input."""
     try:
@@ -287,6 +296,7 @@ def cmd_listen(daemon=False, config_path=None, sessions_path=None, sync_token_pa
                 sp.write_text(since)
 
             for session_name, text in _process_sync_events(data, notify_user, sessions_path):
+                _send_handshake(session_name, text, config, sessions_path or str(SESSIONS_PATH))
                 _forward_to_tmux(session_name, text)
 
         except Exception:
@@ -448,6 +458,13 @@ def cmd_forward(text):
     print(f"[matrix] {text}")
 
 
+def cmd_handle_forward(text):
+    config = load_config(CONFIG_PATH)
+    session_name = get_session_name()
+    _send_handshake(session_name, text, config, str(SESSIONS_PATH))
+    print(f"[matrix] {text}")
+
+
 def cmd_notify(msg_type, text):
     if msg_type not in ("log", "alert", "done"):
         sys.exit(f"Error: unknown type '{msg_type}', must be log, alert, or done")
@@ -480,6 +497,10 @@ def main():
     elif args[0] == "listen":
         daemon = "--daemon" in args
         cmd_listen(daemon=daemon)
+    elif args[0] == "handle-forward":
+        if len(args) < 2:
+            sys.exit("Usage: matrix-cli handle-forward <message>")
+        cmd_handle_forward(" ".join(args[1:]))
     elif args[0] in ("log", "alert", "done"):
         # Backwards compat: matrix-cli log "msg" (called via matrix-notify shim)
         if len(args) < 2:

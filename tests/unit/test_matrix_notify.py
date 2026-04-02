@@ -810,3 +810,253 @@ class TestCmdListen:
                     pass
         assert get_calls
         assert get_calls[0].get("since") == "s_existing_token"
+
+
+# ---------------------------------------------------------------------------
+# _send_handshake
+# ---------------------------------------------------------------------------
+
+class TestSendHandshake:
+    def _make_config(self):
+        return {
+            "MATRIX_HOMESERVER": "https://chat.mozilla.org",
+            "MATRIX_ACCESS_TOKEN": "tok",
+            "MATRIX_ROOM_ID": "!abc:mozilla.org",
+            "MATRIX_NOTIFY_USER": "@me:mozilla.org",
+        }
+
+    def test_sends_log_message_with_received_prefix(self, tmp_path):
+        _load()
+        config = self._make_config()
+        sessions_path = str(tmp_path / "sessions.json")
+        with patch.object(matrix_notify, "ensure_thread", return_value="$t:m.org") as mock_et:
+            with patch.object(matrix_notify, "send_message") as mock_sm:
+                matrix_notify._send_handshake("bug-1234", "hello", config, sessions_path)
+                mock_et.assert_called_once_with("bug-1234", config, sessions_path)
+                mock_sm.assert_called_once_with("log", "Received: hello", "$t:m.org", config)
+
+    def test_swallows_exception(self, tmp_path):
+        _load()
+        config = self._make_config()
+        sessions_path = str(tmp_path / "sessions.json")
+        with patch.object(matrix_notify, "ensure_thread", side_effect=Exception("boom")):
+            matrix_notify._send_handshake("bug-1234", "hello", config, sessions_path)
+
+
+# ---------------------------------------------------------------------------
+# cmd_handle_forward
+# ---------------------------------------------------------------------------
+
+class TestCmdHandleForward:
+    def _make_config_file(self, tmp_path):
+        cfg = tmp_path / "config"
+        cfg.write_text(
+            "MATRIX_HOMESERVER=https://chat.mozilla.org\n"
+            "MATRIX_ACCESS_TOKEN=tok\n"
+            "MATRIX_ROOM_ID=!abc:mozilla.org\n"
+            "MATRIX_NOTIFY_USER=@me:mozilla.org\n"
+        )
+        return cfg
+
+    def test_sends_handshake_and_prints_matrix_prefix(self, tmp_path, capsys):
+        _load()
+        cfg = self._make_config_file(tmp_path)
+        with patch.object(matrix_notify, "CONFIG_PATH", cfg):
+            with patch.object(matrix_notify, "get_session_name", return_value="bug-1234"):
+                with patch.object(matrix_notify, "_send_handshake"):
+                    matrix_notify.cmd_handle_forward("do something")
+        out = capsys.readouterr().out
+        assert "[matrix] do something" in out
+
+    def test_handshake_called_with_session_name(self, tmp_path):
+        _load()
+        cfg = self._make_config_file(tmp_path)
+        with patch.object(matrix_notify, "CONFIG_PATH", cfg):
+            with patch.object(matrix_notify, "get_session_name", return_value="my-session"):
+                with patch.object(matrix_notify, "_send_handshake") as mock_hs:
+                    matrix_notify.cmd_handle_forward("test message")
+                    assert mock_hs.call_args[0][0] == "my-session"
+                    assert mock_hs.call_args[0][1] == "test message"
+
+
+# ---------------------------------------------------------------------------
+# main() dispatch
+# ---------------------------------------------------------------------------
+
+class TestMainDispatch:
+    def _make_config(self, tmp_path):
+        cfg = tmp_path / "config"
+        cfg.write_text(
+            "MATRIX_HOMESERVER=https://chat.mozilla.org\n"
+            "MATRIX_ACCESS_TOKEN=tok\n"
+            "MATRIX_ROOM_ID=!abc:mozilla.org\n"
+            "MATRIX_NOTIFY_USER=@me:mozilla.org\n"
+        )
+        return cfg
+
+    def test_notify_subcommand_dispatched(self, tmp_path):
+        _load()
+        cfg = self._make_config(tmp_path)
+        with patch.object(matrix_notify, "CONFIG_PATH", cfg):
+            with patch.object(matrix_notify, "cmd_notify") as mock_cn:
+                with patch("sys.argv", ["matrix-cli", "notify", "log", "hello"]):
+                    matrix_notify.main()
+                    mock_cn.assert_called_once_with("log", "hello")
+
+    def test_forward_subcommand_dispatched(self, tmp_path):
+        _load()
+        cfg = self._make_config(tmp_path)
+        with patch.object(matrix_notify, "CONFIG_PATH", cfg):
+            with patch.object(matrix_notify, "cmd_forward") as mock_cf:
+                with patch("sys.argv", ["matrix-cli", "forward", "hello"]):
+                    matrix_notify.main()
+                    mock_cf.assert_called_once()
+
+    def test_listen_subcommand_dispatched(self, tmp_path):
+        _load()
+        cfg = self._make_config(tmp_path)
+        with patch.object(matrix_notify, "CONFIG_PATH", cfg):
+            with patch.object(matrix_notify, "cmd_listen") as mock_cl:
+                with patch("sys.argv", ["matrix-cli", "listen"]):
+                    matrix_notify.main()
+                    mock_cl.assert_called_once_with(daemon=False)
+
+    def test_listen_daemon_flag_dispatched(self, tmp_path):
+        _load()
+        cfg = self._make_config(tmp_path)
+        with patch.object(matrix_notify, "CONFIG_PATH", cfg):
+            with patch.object(matrix_notify, "cmd_listen") as mock_cl:
+                with patch("sys.argv", ["matrix-cli", "listen", "--daemon"]):
+                    matrix_notify.main()
+                    mock_cl.assert_called_once_with(daemon=True)
+
+    def test_handle_forward_dispatched(self, tmp_path):
+        _load()
+        cfg = self._make_config(tmp_path)
+        with patch.object(matrix_notify, "CONFIG_PATH", cfg):
+            with patch.object(matrix_notify, "cmd_handle_forward") as mock_hf:
+                with patch("sys.argv", ["matrix-cli", "handle-forward", "hello"]):
+                    matrix_notify.main()
+                    mock_hf.assert_called_once()
+
+    def test_invalid_subcommand_exits(self, tmp_path):
+        _load()
+        cfg = self._make_config(tmp_path)
+        with patch.object(matrix_notify, "CONFIG_PATH", cfg):
+            with patch("sys.argv", ["matrix-cli", "invalid"]):
+                with pytest.raises(SystemExit):
+                    matrix_notify.main()
+
+    def test_notify_missing_args_exits(self, tmp_path):
+        _load()
+        cfg = self._make_config(tmp_path)
+        with patch.object(matrix_notify, "CONFIG_PATH", cfg):
+            with patch("sys.argv", ["matrix-cli", "notify"]):
+                with pytest.raises(SystemExit):
+                    matrix_notify.main()
+
+    def test_forward_missing_args_exits(self, tmp_path):
+        _load()
+        cfg = self._make_config(tmp_path)
+        with patch.object(matrix_notify, "CONFIG_PATH", cfg):
+            with patch("sys.argv", ["matrix-cli", "forward"]):
+                with pytest.raises(SystemExit):
+                    matrix_notify.main()
+
+
+# ---------------------------------------------------------------------------
+# cmd_listen — error recovery
+# ---------------------------------------------------------------------------
+
+class TestCmdListenErrorRecovery:
+    def _make_config(self, tmp_path):
+        cfg = tmp_path / "config"
+        cfg.write_text(
+            "MATRIX_HOMESERVER=https://chat.mozilla.org\n"
+            "MATRIX_ACCESS_TOKEN=tok\n"
+            "MATRIX_ROOM_ID=!abc:mozilla.org\n"
+            "MATRIX_NOTIFY_USER=@me:mozilla.org\n"
+        )
+        return str(cfg)
+
+    def test_continues_after_401_response(self, tmp_path):
+        _load()
+        config_path = self._make_config(tmp_path)
+        sync_token_path = str(tmp_path / "sync-token")
+
+        call_count = [0]
+        def fake_get(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] <= 2:
+                m = MagicMock(status_code=401)
+                return m
+            raise KeyboardInterrupt
+
+        with patch("requests.get", side_effect=fake_get):
+            with patch("time.sleep"):
+                try:
+                    matrix_notify.cmd_listen(
+                        daemon=False,
+                        config_path=config_path,
+                        sync_token_path=sync_token_path,
+                    )
+                except (KeyboardInterrupt, Exception):
+                    pass
+        assert call_count[0] >= 2
+
+    def test_continues_after_network_exception(self, tmp_path):
+        _load()
+        config_path = self._make_config(tmp_path)
+        sync_token_path = tmp_path / "sync-token"
+        sync_token_path.write_text("s_existing")
+
+        call_count = [0]
+        def fake_get(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] <= 2:
+                raise requests.exceptions.ConnectionError("network down")
+            raise KeyboardInterrupt
+
+        with patch("requests.get", side_effect=fake_get):
+            with patch("time.sleep"):
+                try:
+                    matrix_notify.cmd_listen(
+                        daemon=False,
+                        config_path=config_path,
+                        sync_token_path=str(sync_token_path),
+                    )
+                except (KeyboardInterrupt, Exception):
+                    pass
+        assert call_count[0] >= 2
+
+    def test_continues_after_process_sync_exception(self, tmp_path):
+        _load()
+        config_path = self._make_config(tmp_path)
+        sync_token_path = str(tmp_path / "sync-token")
+
+        call_count = [0]
+        def fake_get(*args, **kwargs):
+            call_count[0] += 1
+            m = MagicMock(status_code=200)
+            m.json.return_value = {"next_batch": f"s{call_count[0]}"}
+            return m
+
+        sync_call_count = [0]
+        def fake_process_sync(*args, **kwargs):
+            sync_call_count[0] += 1
+            if sync_call_count[0] <= 2:
+                raise Exception("parse error")
+            raise KeyboardInterrupt
+
+        with patch("requests.get", side_effect=fake_get):
+            with patch.object(matrix_notify, "_process_sync_events", side_effect=fake_process_sync):
+                with patch("time.sleep"):
+                    try:
+                        matrix_notify.cmd_listen(
+                            daemon=False,
+                            config_path=config_path,
+                            sync_token_path=sync_token_path,
+                        )
+                    except (KeyboardInterrupt, Exception):
+                        pass
+        assert sync_call_count[0] >= 2

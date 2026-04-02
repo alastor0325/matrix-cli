@@ -65,6 +65,13 @@ matrix-cli forward "some message"
 # prints: [matrix] some message
 ```
 
+`matrix-cli handle-forward` does the same but also sends a handshake acknowledgement to the Matrix thread before printing. Use this when the forwarded message originates from a Matrix reply and you want the sender to see a `Received:` confirmation in the thread:
+
+```bash
+matrix-cli handle-forward "some message"
+# sends "Received: some message" to the Matrix thread, then prints: [matrix] some message
+```
+
 ### Listening for replies
 
 `matrix-cli listen` polls your Matrix room for thread replies from your own user ID and forwards them as input to the corresponding tmux session:
