@@ -675,19 +675,46 @@ class TestProcessSyncEvents:
 # ---------------------------------------------------------------------------
 
 class TestForwardToTmux:
-    def test_calls_tmux_send_keys(self):
+    def test_prefixes_with_matrix_tag(self):
         _load()
         with patch("subprocess.run") as mock_run:
             matrix_notify._forward_to_tmux("bug-1234", "hello world")
-            mock_run.assert_called_once_with(
-                ["tmux", "send-keys", "-t", "bug-1234", "hello world", "Enter"],
-                capture_output=True,
-            )
+            sent_text = mock_run.call_args[0][0][4]
+            assert sent_text == "[matrix] hello world"
+
+    def test_calls_tmux_send_keys_with_enter(self):
+        _load()
+        with patch("subprocess.run") as mock_run:
+            matrix_notify._forward_to_tmux("bug-1234", "hello world")
+            args = mock_run.call_args[0][0]
+            assert args[0] == "tmux"
+            assert args[1] == "send-keys"
+            assert args[-1] == "Enter"
+            assert args[2] == "-t"
+            assert args[3] == "bug-1234"
 
     def test_swallows_exception_on_failure(self):
         _load()
         with patch("subprocess.run", side_effect=Exception("tmux not found")):
             matrix_notify._forward_to_tmux("bug-1234", "hello")  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# cmd_forward
+# ---------------------------------------------------------------------------
+
+class TestCmdForward:
+    def test_prints_matrix_prefixed_text(self, capsys):
+        _load()
+        matrix_notify.cmd_forward("do something useful")
+        out = capsys.readouterr().out
+        assert out.strip() == "[matrix] do something useful"
+
+    def test_preserves_original_text_in_output(self, capsys):
+        _load()
+        matrix_notify.cmd_forward("bug 1234 status?")
+        out = capsys.readouterr().out
+        assert "bug 1234 status?" in out
 
 
 # ---------------------------------------------------------------------------

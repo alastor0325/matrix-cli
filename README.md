@@ -56,6 +56,15 @@ matrix-cli notify done  "Bug 1000000 fully landed"
 
 Session name is auto-detected from the current tmux session name if available, or falls back to the hostname.
 
+### Forwarding messages
+
+`matrix-cli forward` prints a `[matrix]`-prefixed message to stdout, for use in shell pipelines or scripts that need to forward messages without sending them to Matrix directly:
+
+```bash
+matrix-cli forward "some message"
+# prints: [matrix] some message
+```
+
 ### Listening for replies
 
 `matrix-cli listen` polls your Matrix room for thread replies from your own user ID and forwards them as input to the corresponding tmux session:
@@ -65,7 +74,7 @@ matrix-cli listen           # foreground, Ctrl-C to stop
 matrix-cli listen --daemon  # background daemon, PID saved to /tmp/matrix-listen.pid
 ```
 
-When you reply to a thread in Element (e.g. from your phone), `listen` detects the reply, looks up which tmux session owns that thread, and submits your message to that session via `tmux send-keys`. This lets you interact with running Claude agents remotely.
+When you reply to a thread in Element (e.g. from your phone), `listen` detects the reply, looks up which tmux session owns that thread, and submits the message prefixed with `[matrix]` to that session via `tmux send-keys`. This lets you interact with running Claude agents remotely.
 
 The listener filters to messages from your own `MATRIX_NOTIFY_USER` ID — replies from other users in the room are ignored.
 

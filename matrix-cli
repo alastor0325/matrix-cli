@@ -6,6 +6,7 @@ Usage:
   matrix-cli setup                     interactive setup
   matrix-cli notify <type> <message>   send a notification (type: log, alert, done)
   matrix-cli listen [--daemon]         start the incoming-message listener
+  matrix-cli forward <message>         print a [matrix]-prefixed message for shell forwarding
 """
 import getpass
 import json
@@ -230,10 +231,10 @@ def _process_sync_events(data, notify_user, sessions_path=None):
 
 
 def _forward_to_tmux(session_name, text):
-    """Submit text to a tmux session as user input (with Enter)."""
+    """Submit a [matrix]-prefixed message to a tmux session as user input."""
     try:
         subprocess.run(
-            ["tmux", "send-keys", "-t", session_name, text, "Enter"],
+            ["tmux", "send-keys", "-t", session_name, f"[matrix] {text}", "Enter"],
             capture_output=True,
         )
     except Exception:
@@ -442,6 +443,11 @@ def setup():
 
 # ── subcommand dispatch ───────────────────────────────────────────────────────
 
+def cmd_forward(text):
+    """Print a [matrix]-prefixed message to stdout for shell-based forwarding."""
+    print(f"[matrix] {text}")
+
+
 def cmd_notify(msg_type, text):
     if msg_type not in ("log", "alert", "done"):
         sys.exit(f"Error: unknown type '{msg_type}', must be log, alert, or done")
@@ -467,6 +473,10 @@ def main():
         if len(args) < 3:
             sys.exit("Usage: matrix-cli notify <log|alert|done> <message>")
         cmd_notify(args[1], " ".join(args[2:]))
+    elif args[0] == "forward":
+        if len(args) < 2:
+            sys.exit("Usage: matrix-cli forward <message>")
+        cmd_forward(" ".join(args[1:]))
     elif args[0] == "listen":
         daemon = "--daemon" in args
         cmd_listen(daemon=daemon)
