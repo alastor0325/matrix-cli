@@ -29,7 +29,17 @@ my-bot  [session-name] started 2026-04-01 10:00
    ```bash
    matrix-cli
    ```
-   The wizard walks through 7 steps: config directory, homeserver URL, bot access token, your Matrix user ID, notification room (paste an existing room ID or press Enter to auto-create one), optional test room, and install location. Credentials are written to `~/.matrix-cli/config` — outside the repo, never committed.
+   The wizard walks through 7 steps:
+
+   1. Config directory (default: `~/.matrix-cli/`)
+   2. Homeserver URL
+   3. Bot access token
+   4. Your Matrix user ID
+   5. Notification room — paste an existing room ID or press Enter to auto-create one
+   6. Test room (optional) — for integration tests; same choice as above
+   7. Install location for the `matrix-cli` binary
+
+   Credentials are written to `~/.matrix-cli/config` — outside the repo, never committed.
 
 4. **Done** — setup runs automatically again if the config is ever missing.
 
