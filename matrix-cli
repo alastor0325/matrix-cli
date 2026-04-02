@@ -104,16 +104,29 @@ def load_config(path=None):
 
 
 def get_session_name():
+    if os.environ.get("TMUX"):
+        try:
+            name = subprocess.check_output(
+                ["tmux", "display-message", "-p", "#S"],
+                stderr=subprocess.DEVNULL,
+            ).decode().strip()
+            if name:
+                return name
+        except Exception:
+            pass
+    return socket.gethostname()
+
+
+def get_tmux_session():
+    """Return the active tmux session name regardless of $TMUX, or None if tmux unavailable."""
     try:
         name = subprocess.check_output(
             ["tmux", "display-message", "-p", "#S"],
             stderr=subprocess.DEVNULL,
         ).decode().strip()
-        if name:
-            return name
+        return name if name else None
     except Exception:
-        pass
-    return socket.gethostname()
+        return None
 
 
 def load_sessions(path=None):
@@ -161,7 +174,11 @@ def ensure_thread(session, config, sessions_path=None):
         return sessions[session]["thread_id"]
     ts = time.strftime("%Y-%m-%d %H:%M")
     event_id = _send_event(config, {"msgtype": "m.text", "body": f"[{session}] started {ts}"})
-    sessions[session] = {"thread_id": event_id, "started": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    entry = {"thread_id": event_id, "started": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    tmux_target = get_tmux_session()
+    if tmux_target:
+        entry["tmux_target"] = tmux_target
+    sessions[session] = entry
     save_sessions(sessions_path, sessions)
     return event_id
 
@@ -241,9 +258,11 @@ def _send_handshake(session_name, text, config, sessions_path):
 
 def _forward_to_tmux(session_name, text):
     """Submit a [matrix]-prefixed message to a tmux session as user input."""
+    sessions = load_sessions()
+    target = sessions.get(session_name, {}).get("tmux_target", session_name)
     try:
         subprocess.run(
-            ["tmux", "send-keys", "-t", session_name, f"[matrix] {text}", "Enter"],
+            ["tmux", "send-keys", "-t", target, f"[matrix] {text}", "Enter"],
             capture_output=True,
         )
     except Exception:

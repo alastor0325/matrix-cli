@@ -1,44 +1,38 @@
 # matrix-cli
 
-A CLI tool that sends and receives Matrix notifications for automated workflows, organized into per-session threads. Useful for any process that needs to log progress, ping for approvals, and accept replies from your phone or Element.
-
-## How it works
-
-Each named session gets its own Matrix thread. Multiple concurrent sessions (`bug-1234`, `bug-5678`) produce separate threads in the room, keeping their output visually isolated in Element.
-
-The session name is taken from the current tmux session if available, or falls back to the hostname.
+A CLI tool that sends and receives Matrix notifications for automated workflows. Each session gets its own thread in a Matrix room, keeping output from concurrent processes visually isolated in Element.
 
 ```
 my-bot  [session-name] started 2026-04-01 10:00
   └─ [log]   CI analysis done: 3 failures need fixing
-  └─ [alert] @you Approval needed: D100000 waiting for r+
+  └─ [alert] @you Approval needed: D123456 waiting for r+
   └─ [done]  Bug 1000000 fully landed
 ```
 
 ## Setup
 
-**Prerequisites:** Python 3, `pip`
+1. **Clone and install dependencies**
+   ```bash
+   git clone https://github.com/alastor0325/matrix-cli
+   cd matrix-cli
+   pip3 install -r requirements.txt
+   ```
 
-```bash
-git clone https://github.com/alastor0325/matrix-cli
-cd matrix-cli
-pip3 install -r requirements.txt
-python3 matrix-cli  # setup runs automatically on first use
-```
+2. **Prepare your credentials** — you'll need these during the wizard:
 
-After installation, `matrix-cli` is available on your PATH and setup runs automatically whenever no config is present.
+   | What | Where to find it |
+   |------|-----------------|
+   | Homeserver URL | Element → Settings → Help & About → Homeserver (defaults to `https://mozilla.modular.im`) |
+   | Bot access token | Log into Element as the bot → Settings → Help & About → Access Token |
+   | Your Matrix user ID | Element → Settings → Account (shown as `@username:homeserver`) |
 
-This walks you through seven steps (homeserver URL, bot access token, your Matrix user ID, notification room, optional test room, and install location) and writes credentials to `~/.matrix-cli/config` — outside the repo, never committed. The homeserver URL defaults to `https://mozilla.modular.im`. All inputs are validated and setup loops until a valid value is entered. The access token input is hidden while you type.
+3. **Run setup**
+   ```bash
+   python3 matrix-cli
+   ```
+   The wizard walks through homeserver URL, bot access token, your Matrix user ID, notification room name, optional test room, and install location. Credentials are written to `~/.matrix-cli/config` — outside the repo, never committed.
 
-Setup creates a private Matrix room, invites your Matrix user ID, and installs `matrix-cli` (and a `matrix-notify` backwards-compatibility shim) to `~/.local/bin/` by default.
-
-### Getting the credentials
-
-| What | Where to find it |
-|------|-----------------|
-| Homeserver URL | Element → Settings → Help & About → Homeserver |
-| Bot access token | Log into Element as the bot → Settings → Help & About → Access Token |
-| Your Matrix user ID | Element → Settings → Account (shown as `@username:homeserver`) |
+4. **Done** — `matrix-cli` is now on your PATH. Setup runs automatically again if the config is ever missing.
 
 ## Usage
 
@@ -50,46 +44,47 @@ matrix-cli notify alert "Approval needed: D123456 waiting for r+"
 matrix-cli notify done  "Bug 1000000 fully landed"
 ```
 
-- `log` — plain text progress update
-- `alert` — bold + @mention to trigger an Element notification
-- `done` — bold, marks a task complete
+| Type | Appearance | When to use |
+|------|-----------|-------------|
+| `log` | plain text | progress updates |
+| `alert` | bold + @mention | action required |
+| `done` | bold | task complete |
 
-Session name is auto-detected from the current tmux session name if available, or falls back to the hostname.
+**Session name** — the thread the message is posted to — is determined automatically:
+- Inside a tmux pane (`$TMUX` is set): uses the tmux session name
+- Outside tmux (script, cron job, or process that strips `$TMUX`): uses the hostname
 
-### Forwarding messages
-
-`matrix-cli forward` prints a `[matrix]`-prefixed message to stdout, for use in shell pipelines or scripts that need to forward messages without sending them to Matrix directly:
-
-```bash
-matrix-cli forward "some message"
-# prints: [matrix] some message
-```
-
-`matrix-cli handle-forward` does the same but also sends a handshake acknowledgement to the Matrix thread before printing. Use this when the forwarded message originates from a Matrix reply and you want the sender to see a `Received:` confirmation in the thread:
-
-```bash
-matrix-cli handle-forward "some message"
-# sends "Received: some message" to the Matrix thread, then prints: [matrix] some message
-```
+The thread is created automatically on first use.
 
 ### Listening for replies
 
-`matrix-cli listen` polls your Matrix room for thread replies from your own user ID and forwards them as input to the corresponding tmux session:
-
 ```bash
 matrix-cli listen           # foreground, Ctrl-C to stop
-matrix-cli listen --daemon  # background daemon, PID saved to /tmp/matrix-listen.pid
+matrix-cli listen --daemon  # background, PID saved to /tmp/matrix-listen.pid
 ```
 
-When you reply to a thread in Element (e.g. from your phone), `listen` detects the reply, looks up which tmux session owns that thread, and submits the message prefixed with `[matrix]` to that session via `tmux send-keys`. This lets you interact with running Claude agents remotely.
+When you reply to a thread in Element (e.g. from your phone), `listen` detects the reply and submits the message — prefixed with `[matrix]` — to the correct tmux session via `tmux send-keys`.
 
-The listener filters to messages from your own `MATRIX_NOTIFY_USER` ID — replies from other users in the room are ignored.
+The delivery target is determined at thread-creation time. When a process outside tmux (no `$TMUX`) creates a thread, the active tmux session name is recorded as `tmux_target` in `~/.matrix-cli/sessions.json`. Replies to that thread are then forwarded to the right tmux pane even though the originating process had no tmux context.
 
-**Sync state** is saved to `~/.matrix-cli/sync-token` so the daemon resumes from where it left off after a restart, without replaying history.
+Other notes:
+- Only replies from your own `MATRIX_NOTIFY_USER` are forwarded — replies from others in the room are ignored.
+- Sync state is saved to `~/.matrix-cli/sync-token` so the daemon resumes from where it left off after a restart.
+- If `--daemon` is used while a daemon is already running, the command prints `already running (pid N)` and exits.
 
-**Single-instance guard:** if `--daemon` is used and a daemon is already running (detected via the PID file), the command prints `matrix-cli listen daemon already running (pid <N>)` and exits without starting a second instance.
+### Forwarding messages
 
-**Auto-start:** the `matrix-cli listen --daemon` is started automatically by the firefox-manager watcher on every `/manager` init, and is kept alive by the healthcheck cron.
+These commands are for shell scripts and hooks that receive a Matrix reply and need to pass it to another process:
+
+```bash
+# Print [matrix]-prefixed text to stdout (no Matrix API call)
+matrix-cli forward "some message"
+
+# Send "Received: ..." handshake to the thread, then print [matrix]-prefixed text
+matrix-cli handle-forward "some message"
+```
+
+Use `handle-forward` when the message originates from a Matrix reply — it acknowledges receipt in the thread so the sender sees confirmation in Element before the message is processed.
 
 ### Backwards compatibility
 
@@ -98,11 +93,12 @@ The `matrix-notify` shim is installed alongside `matrix-cli` and delegates to `m
 ## Development
 
 ```bash
-pytest tests/unit/        # fast, no credentials needed
-pytest tests/integration/ # requires ~/.matrix-cli/config
-pytest --cov              # coverage report
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/pytest tests/unit/        # fast, no credentials needed
+.venv/bin/pytest tests/integration/ # requires ~/.matrix-cli/config with MATRIX_TEST_ROOM_ID
+.venv/bin/pytest --cov              # coverage report
 ```
 
-A pre-commit hook runs the unit suite automatically on every commit. Integration tests run if `~/.matrix-cli/config` is present. The hook is enabled automatically during `matrix-cli setup` (it sets `core.hooksPath` to the repo's `scripts/` directory).
+A pre-commit hook runs the unit suite automatically on every commit, enabled during `matrix-cli setup` via `core.hooksPath`.
 
 See [CLAUDE.md](CLAUDE.md) for TDD rules.

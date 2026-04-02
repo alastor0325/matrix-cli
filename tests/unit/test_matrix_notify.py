@@ -60,17 +60,33 @@ class TestLoadConfig:
 # ---------------------------------------------------------------------------
 
 class TestGetSessionName:
-    def test_inside_tmux(self):
+    def test_inside_tmux_uses_session_name(self):
         _load()
-        with patch("subprocess.check_output", return_value=b"bug-1234\n"):
-            assert matrix_notify.get_session_name() == "bug-1234"
+        with patch.dict(os.environ, {"TMUX": "/tmp/tmux-1000/default,1234,0"}):
+            with patch("subprocess.check_output", return_value=b"bug-1234\n"):
+                assert matrix_notify.get_session_name() == "bug-1234"
 
-    def test_outside_tmux_fallback(self):
+    def test_no_tmux_env_uses_hostname_even_if_tmux_running(self):
+        # Without $TMUX (e.g. Claude Code), hostname is used — tmux is not queried
         _load()
-        with patch("subprocess.check_output", side_effect=Exception("no tmux")):
+        env = {k: v for k, v in os.environ.items() if k != "TMUX"}
+        with patch.dict(os.environ, env, clear=True):
+            with patch("subprocess.check_output") as mock_sub:
+                with patch("socket.gethostname", return_value="my-host"):
+                    assert matrix_notify.get_session_name() == "my-host"
+                    mock_sub.assert_not_called()
+
+    def test_tmux_unavailable_falls_back_to_hostname(self):
+        _load()
+        with patch("subprocess.check_output", side_effect=Exception("tmux not found")):
             with patch("socket.gethostname", return_value="mymac"):
-                result = matrix_notify.get_session_name()
-                assert result == "mymac"
+                assert matrix_notify.get_session_name() == "mymac"
+
+    def test_tmux_empty_output_falls_back_to_hostname(self):
+        _load()
+        with patch("subprocess.check_output", return_value=b"\n"):
+            with patch("socket.gethostname", return_value="fallback-host"):
+                assert matrix_notify.get_session_name() == "fallback-host"
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +105,34 @@ class TestSessions:
         data = {"bug-1234": {"thread_id": "$abc:mozilla.org", "started": "2026-04-01T10:00:00"}}
         matrix_notify.save_sessions(path, data)
         assert matrix_notify.load_sessions(path) == data
+
+
+# ---------------------------------------------------------------------------
+# get_tmux_session
+# ---------------------------------------------------------------------------
+
+class TestGetTmuxSession:
+    def test_returns_session_name_when_tmux_running(self):
+        _load()
+        with patch("subprocess.check_output", return_value=b"matrix\n"):
+            assert matrix_notify.get_tmux_session() == "matrix"
+
+    def test_returns_none_when_tmux_unavailable(self):
+        _load()
+        with patch("subprocess.check_output", side_effect=Exception("no tmux")):
+            assert matrix_notify.get_tmux_session() is None
+
+    def test_returns_none_on_empty_output(self):
+        _load()
+        with patch("subprocess.check_output", return_value=b"\n"):
+            assert matrix_notify.get_tmux_session() is None
+
+    def test_works_regardless_of_tmux_env_var(self):
+        _load()
+        env = {k: v for k, v in os.environ.items() if k != "TMUX"}
+        with patch.dict(os.environ, env, clear=True):
+            with patch("subprocess.check_output", return_value=b"matrix\n"):
+                assert matrix_notify.get_tmux_session() == "matrix"
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +184,40 @@ class TestThreadIsolation:
             matrix_notify.ensure_thread("bug-1234", config, sessions_path)
             # root message created only once
             assert mock_put.call_count == 1
+
+    def test_stores_tmux_target_when_tmux_running(self, tmp_path):
+        _load()
+        sessions_path = str(tmp_path / "sessions.json")
+        config = {
+            "MATRIX_HOMESERVER": "https://chat.mozilla.org",
+            "MATRIX_ACCESS_TOKEN": "tok",
+            "MATRIX_ROOM_ID": "!abc:mozilla.org",
+            "MATRIX_NOTIFY_USER": "@alwu:mozilla.org",
+        }
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = {"event_id": "$root:mozilla.org"}
+        with patch("requests.put", return_value=mock_resp):
+            with patch("subprocess.check_output", return_value=b"matrix\n"):
+                matrix_notify.ensure_thread("my-host", config, sessions_path)
+        sessions = matrix_notify.load_sessions(sessions_path)
+        assert sessions["my-host"]["tmux_target"] == "matrix"
+
+    def test_no_tmux_target_when_tmux_unavailable(self, tmp_path):
+        _load()
+        sessions_path = str(tmp_path / "sessions.json")
+        config = {
+            "MATRIX_HOMESERVER": "https://chat.mozilla.org",
+            "MATRIX_ACCESS_TOKEN": "tok",
+            "MATRIX_ROOM_ID": "!abc:mozilla.org",
+            "MATRIX_NOTIFY_USER": "@alwu:mozilla.org",
+        }
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = {"event_id": "$root:mozilla.org"}
+        with patch("requests.put", return_value=mock_resp):
+            with patch("subprocess.check_output", side_effect=Exception("no tmux")):
+                matrix_notify.ensure_thread("my-host", config, sessions_path)
+        sessions = matrix_notify.load_sessions(sessions_path)
+        assert "tmux_target" not in sessions["my-host"]
 
 
 # ---------------------------------------------------------------------------
@@ -698,6 +776,32 @@ class TestForwardToTmux:
         with patch("subprocess.run", side_effect=Exception("tmux not found")):
             matrix_notify._forward_to_tmux("bug-1234", "hello")  # should not raise
 
+    def test_uses_tmux_target_from_sessions_when_present(self, tmp_path):
+        _load()
+        with patch.object(matrix_notify, "SESSIONS_PATH", tmp_path / "sessions.json"):
+            matrix_notify.save_sessions(str(tmp_path / "sessions.json"), {
+                "my-host": {
+                    "thread_id": "$t:m.org",
+                    "started": "2026-04-01T10:00:00",
+                    "tmux_target": "matrix",
+                }
+            })
+            with patch("subprocess.run") as mock_run:
+                matrix_notify._forward_to_tmux("my-host", "hello")
+                target = mock_run.call_args[0][0][3]
+                assert target == "matrix"
+
+    def test_falls_back_to_session_name_when_no_tmux_target(self, tmp_path):
+        _load()
+        with patch.object(matrix_notify, "SESSIONS_PATH", tmp_path / "sessions.json"):
+            matrix_notify.save_sessions(str(tmp_path / "sessions.json"), {
+                "matrix": {"thread_id": "$t:m.org", "started": "2026-04-01T10:00:00"}
+            })
+            with patch("subprocess.run") as mock_run:
+                matrix_notify._forward_to_tmux("matrix", "hello")
+                target = mock_run.call_args[0][0][3]
+                assert target == "matrix"
+
 
 # ---------------------------------------------------------------------------
 # cmd_forward
@@ -988,6 +1092,107 @@ class TestCmdHandleForward:
                     matrix_notify.cmd_handle_forward("test message")
                     assert mock_hs.call_args[0][0] == "my-session"
                     assert mock_hs.call_args[0][1] == "test message"
+
+
+# ---------------------------------------------------------------------------
+# cmd_notify
+# ---------------------------------------------------------------------------
+
+class TestCmdNotify:
+    def _make_config_file(self, tmp_path):
+        cfg = tmp_path / "config"
+        cfg.write_text(
+            "MATRIX_HOMESERVER=https://chat.mozilla.org\n"
+            "MATRIX_ACCESS_TOKEN=tok\n"
+            "MATRIX_ROOM_ID=!abc:mozilla.org\n"
+            "MATRIX_NOTIFY_USER=@me:mozilla.org\n"
+        )
+        return cfg
+
+    def test_invalid_type_exits(self, tmp_path):
+        _load()
+        cfg = self._make_config_file(tmp_path)
+        with patch.object(matrix_notify, "CONFIG_PATH", cfg):
+            with pytest.raises(SystemExit):
+                matrix_notify.cmd_notify("bad-type", "hello")
+
+    def test_valid_types_accepted(self, tmp_path):
+        _load()
+        cfg = self._make_config_file(tmp_path)
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = {"event_id": "$e:m.org"}
+        for msg_type in ("log", "alert", "done"):
+            sessions_path = str(tmp_path / f"sessions-{msg_type}.json")
+            with patch.object(matrix_notify, "CONFIG_PATH", cfg):
+                with patch.object(matrix_notify, "SESSIONS_PATH", tmp_path / f"sessions-{msg_type}.json"):
+                    with patch.object(matrix_notify, "get_session_name", return_value="my-session"):
+                        with patch("requests.put", return_value=mock_resp):
+                            matrix_notify.cmd_notify(msg_type, "hello")
+
+    def test_uses_hostname_as_session_when_tmux_unavailable(self, tmp_path):
+        _load()
+        cfg = self._make_config_file(tmp_path)
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = {"event_id": "$e:m.org"}
+        with patch.object(matrix_notify, "CONFIG_PATH", cfg):
+            with patch.object(matrix_notify, "SESSIONS_PATH", tmp_path / "sessions.json"):
+                with patch("subprocess.check_output", side_effect=Exception("no tmux")):
+                    with patch("socket.gethostname", return_value="my-host"):
+                        with patch("requests.put", return_value=mock_resp):
+                            matrix_notify.cmd_notify("log", "hello")
+        sessions = matrix_notify.load_sessions(str(tmp_path / "sessions.json"))
+        assert "my-host" in sessions
+
+    def test_uses_tmux_session_name_when_inside_tmux(self, tmp_path):
+        _load()
+        cfg = self._make_config_file(tmp_path)
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = {"event_id": "$e:m.org"}
+        with patch.dict(os.environ, {"TMUX": "/tmp/tmux-1000/default,1234,0"}):
+            with patch.object(matrix_notify, "CONFIG_PATH", cfg):
+                with patch.object(matrix_notify, "SESSIONS_PATH", tmp_path / "sessions.json"):
+                    with patch("subprocess.check_output", return_value=b"matrix\n"):
+                        with patch("requests.put", return_value=mock_resp):
+                            matrix_notify.cmd_notify("log", "hello")
+        sessions = matrix_notify.load_sessions(str(tmp_path / "sessions.json"))
+        assert "matrix" in sessions
+
+    def test_message_posted_to_existing_thread(self, tmp_path):
+        _load()
+        cfg = self._make_config_file(tmp_path)
+        sessions_path = tmp_path / "sessions.json"
+        matrix_notify.save_sessions(str(sessions_path), {
+            "my-session": {"thread_id": "$existing:m.org", "started": "2026-04-01T10:00:00"}
+        })
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = {"event_id": "$reply:m.org"}
+        with patch.dict(os.environ, {"TMUX": "/tmp/tmux-1000/default,1234,0"}):
+            with patch.object(matrix_notify, "CONFIG_PATH", cfg):
+                with patch.object(matrix_notify, "SESSIONS_PATH", sessions_path):
+                    with patch("subprocess.check_output", return_value=b"my-session\n"):
+                        with patch("requests.put", return_value=mock_resp) as mock_put:
+                            matrix_notify.cmd_notify("log", "hello")
+        body = mock_put.call_args[1]["json"]
+        assert body["m.relates_to"]["event_id"] == "$existing:m.org"
+        assert mock_put.call_count == 1
+
+    def test_new_thread_created_for_unknown_session(self, tmp_path):
+        _load()
+        cfg = self._make_config_file(tmp_path)
+        sessions_path = tmp_path / "sessions.json"
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = {"event_id": "$new-root:m.org"}
+        env = {k: v for k, v in os.environ.items() if k != "TMUX"}
+        with patch.dict(os.environ, env, clear=True):
+            with patch.object(matrix_notify, "CONFIG_PATH", cfg):
+                with patch.object(matrix_notify, "SESSIONS_PATH", sessions_path):
+                    with patch("subprocess.check_output", side_effect=Exception("no tmux")):
+                        with patch("socket.gethostname", return_value="new-host"):
+                            with patch("requests.put", return_value=mock_resp) as mock_put:
+                                matrix_notify.cmd_notify("log", "hello")
+        assert mock_put.call_count == 2
+        sessions = matrix_notify.load_sessions(str(sessions_path))
+        assert "new-host" in sessions
 
 
 # ---------------------------------------------------------------------------
