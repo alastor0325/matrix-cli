@@ -11,12 +11,11 @@ my-bot  [session-name] started 2026-04-01 10:00
 
 ## Setup
 
-1. **Clone and install dependencies**
+1. **Install**
    ```bash
-   git clone https://github.com/alastor0325/matrix-cli
-   cd matrix-cli
-   pip3 install -r requirements.txt
+   curl -fsSL https://raw.githubusercontent.com/alastor0325/matrix-cli/main/install.sh | sh
    ```
+   This downloads `matrix-cli` to `~/.local/bin/`, installs the `matrix-notify` shim, and ensures `requests` is available.
 
 2. **Prepare your credentials** — you'll need these during the wizard:
 
@@ -26,13 +25,13 @@ my-bot  [session-name] started 2026-04-01 10:00
    | Bot access token | Create a new Matrix account for the bot, log in as it in Element → Settings → Help & About → Access Token |
    | Your Matrix user ID | Your personal account → Element → Settings → Account (shown as `@username:homeserver`) |
 
-3. **Run setup** — from the cloned repo directory:
+3. **Run setup**
    ```bash
-   ./matrix-cli
+   matrix-cli
    ```
    The wizard walks through homeserver URL, bot access token, your Matrix user ID, notification room name, optional test room, and install location. Credentials are written to `~/.matrix-cli/config` — outside the repo, never committed.
 
-4. **Done** — `matrix-cli` is now on your PATH. Setup runs automatically again if the config is ever missing.
+4. **Done** — setup runs automatically again if the config is ever missing.
 
 ## Usage
 
