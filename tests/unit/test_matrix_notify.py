@@ -743,6 +743,117 @@ class TestGetInitialSince:
 
 
 # ---------------------------------------------------------------------------
+# cmd_listen --daemon: single-instance guard
+# ---------------------------------------------------------------------------
+
+class TestCmdListenDaemonSingleInstance:
+    def _make_config(self, tmp_path):
+        cfg = tmp_path / "config"
+        cfg.write_text(
+            "MATRIX_HOMESERVER=https://chat.mozilla.org\n"
+            "MATRIX_ACCESS_TOKEN=tok\n"
+            "MATRIX_ROOM_ID=!abc:mozilla.org\n"
+            "MATRIX_NOTIFY_USER=@alwu:mozilla.org\n"
+        )
+        return str(cfg)
+
+    def test_exits_immediately_when_daemon_already_running(self, tmp_path, capsys):
+        _load()
+        pid_file = tmp_path / "matrix-listen.pid"
+        pid_file.write_text("99999")
+
+        def fake_kill(pid, sig):
+            if pid == 99999 and sig == 0:
+                return  # process is alive
+
+        config_path = self._make_config(tmp_path)
+        sync_token_path = str(tmp_path / "sync_token")
+
+        with patch.object(matrix_notify, "LISTEN_PID_FILE", pid_file):
+            with patch("os.kill", side_effect=fake_kill):
+                matrix_notify.cmd_listen(
+                    daemon=True,
+                    config_path=config_path,
+                    sync_token_path=sync_token_path,
+                )
+
+        out = capsys.readouterr().out
+        assert "already running" in out.lower()
+        assert pid_file.read_text() == "99999"
+
+    def test_proceeds_when_pid_file_missing(self, tmp_path):
+        _load()
+        pid_file = tmp_path / "matrix-listen.pid"
+        assert not pid_file.exists()
+
+        config_path = self._make_config(tmp_path)
+        sync_token_path = str(tmp_path / "sync_token")
+
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = {"next_batch": "s1", "rooms": {}}
+
+        call_count = 0
+
+        def fake_get(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                raise KeyboardInterrupt
+            return mock_resp
+
+        with patch.object(matrix_notify, "LISTEN_PID_FILE", pid_file):
+            with patch("requests.get", side_effect=fake_get):
+                try:
+                    matrix_notify.cmd_listen(
+                        daemon=True,
+                        config_path=config_path,
+                        sync_token_path=sync_token_path,
+                    )
+                except KeyboardInterrupt:
+                    pass
+
+        assert pid_file.exists()
+        assert pid_file.read_text() == str(os.getpid())
+
+    def test_proceeds_when_pid_is_stale(self, tmp_path):
+        _load()
+        pid_file = tmp_path / "matrix-listen.pid"
+        pid_file.write_text("99999")
+
+        def fake_kill(pid, sig):
+            raise ProcessLookupError("no such process")
+
+        config_path = self._make_config(tmp_path)
+        sync_token_path = str(tmp_path / "sync_token")
+
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = {"next_batch": "s1", "rooms": {}}
+
+        call_count = 0
+
+        def fake_get(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 2:
+                raise KeyboardInterrupt
+            return mock_resp
+
+        with patch.object(matrix_notify, "LISTEN_PID_FILE", pid_file):
+            with patch("os.kill", side_effect=fake_kill):
+                with patch("requests.get", side_effect=fake_get):
+                    try:
+                        matrix_notify.cmd_listen(
+                            daemon=True,
+                            config_path=config_path,
+                            sync_token_path=sync_token_path,
+                        )
+                    except KeyboardInterrupt:
+                        pass
+
+        assert pid_file.read_text() == str(os.getpid())
+
+
+# ---------------------------------------------------------------------------
 # cmd_listen — daemon PID and token initialisation
 # ---------------------------------------------------------------------------
 

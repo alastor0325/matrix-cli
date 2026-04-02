@@ -259,6 +259,14 @@ def cmd_listen(daemon=False, config_path=None, sessions_path=None, sync_token_pa
     sp = Path(sync_token_path or SYNC_TOKEN_PATH)
 
     if daemon:
+        if LISTEN_PID_FILE.exists():
+            try:
+                pid = int(LISTEN_PID_FILE.read_text().strip())
+                os.kill(pid, 0)
+                print(f"matrix-cli listen daemon already running (pid {pid})")
+                return
+            except (ProcessLookupError, OSError):
+                pass
         LISTEN_PID_FILE.write_text(str(os.getpid()))
 
     headers = {"Authorization": f"Bearer {token}"}

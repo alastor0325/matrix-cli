@@ -87,6 +87,8 @@ The listener filters to messages from your own `MATRIX_NOTIFY_USER` ID — repli
 
 **Sync state** is saved to `~/.matrix-cli/sync-token` so the daemon resumes from where it left off after a restart, without replaying history.
 
+**Single-instance guard:** if `--daemon` is used and a daemon is already running (detected via the PID file), the command prints `matrix-cli listen daemon already running (pid <N>)` and exits without starting a second instance.
+
 **Auto-start:** the `matrix-cli listen --daemon` is started automatically by the firefox-manager watcher on every `/manager` init, and is kept alive by the healthcheck cron.
 
 ### Backwards compatibility
