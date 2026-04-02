@@ -335,6 +335,15 @@ def cmd_listen(daemon=False, config_path=None, sessions_path=None, sync_token_pa
 def setup():
     print("\nmatrix-cli setup")
     print("================\n")
+    print("This wizard will guide you through 7 steps:\n")
+    print("  0. Config directory   — where credentials are stored")
+    print("  1. Homeserver         — your Matrix server URL")
+    print("  2. Access token       — bot account credentials")
+    print("  3. Your Matrix ID     — who to @mention for alerts")
+    print("  4. Notification room  — where messages are posted")
+    print("  5. Test room          — optional room for integration tests")
+    print("  6. Install location   — where to put the matrix-cli binary")
+    print()
 
     print("Step 0/6 — Config directory")
     default_dir = str(Path.home() / ".matrix-cli")
