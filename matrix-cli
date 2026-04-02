@@ -1,0 +1,483 @@
+#!/usr/bin/env python3
+"""
+matrix-cli — send and receive Matrix notifications for automated workflows.
+
+Usage:
+  matrix-cli setup                     interactive setup
+  matrix-cli notify <type> <message>   send a notification (type: log, alert, done)
+  matrix-cli listen [--daemon]         start the incoming-message listener
+"""
+import getpass
+import json
+import os
+import re
+import shutil
+import socket
+import subprocess
+import sys
+import time
+import uuid
+from pathlib import Path
+
+try:
+    import requests
+except ImportError:
+    sys.exit("Error: 'requests' is not installed.\nRun: pip3 install requests")
+
+CONFIG_PATH       = Path.home() / ".matrix-cli" / "config"
+SESSIONS_PATH     = Path.home() / ".matrix-cli" / "sessions.json"
+SYNC_TOKEN_PATH   = Path.home() / ".matrix-cli" / "sync-token"
+LISTEN_PID_FILE   = Path("/tmp/matrix-listen.pid")
+REQUIRED_KEYS     = ["MATRIX_HOMESERVER", "MATRIX_ACCESS_TOKEN", "MATRIX_ROOM_ID", "MATRIX_NOTIFY_USER"]
+
+
+def _script_path():
+    return Path(__file__).resolve()
+
+
+def _default_bin_dir():
+    return Path.home() / ".local" / "bin"
+
+
+def _default_venv_dir():
+    return Path.home() / ".matrix-cli" / ".venv"
+
+
+def _setup_venv(venv_dir):
+    import venv as _venv
+    venv_dir = Path(venv_dir)
+    if not venv_dir.exists():
+        _venv.create(str(venv_dir), with_pip=True)
+    pip = venv_dir / ("Scripts" if sys.platform == "win32" else "bin") / "pip"
+    subprocess.check_call([str(pip), "install", "-q", "requests"])
+    return venv_dir
+
+
+def _venv_python(venv_dir):
+    venv_dir = Path(venv_dir)
+    if sys.platform == "win32":
+        return venv_dir / "Scripts" / "python.exe"
+    return venv_dir / "bin" / "python3"
+
+
+def install_to_path(bin_dir=None, script=None, venv_dir=None):
+    bin_dir = Path(bin_dir) if bin_dir else _default_bin_dir()
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    src = Path(script) if script else _script_path()
+    venv_dir = Path(venv_dir) if venv_dir else _default_venv_dir()
+
+    _setup_venv(venv_dir)
+    python = _venv_python(venv_dir)
+
+    if sys.platform == "win32":
+        dest = bin_dir / "matrix-cli.bat"
+        dest.write_text(f'@echo off\n"{python}" "{src}" %*\n')
+        shim = bin_dir / "matrix-notify.bat"
+        shim.write_text(f'@echo off\n"{python}" "{src}" notify %*\n')
+    else:
+        dest = bin_dir / "matrix-cli"
+        dest.write_text(f'#!/bin/sh\nexec "{python}" "{src}" "$@"\n')
+        dest.chmod(0o755)
+        shim = bin_dir / "matrix-notify"
+        shim.write_text(f'#!/bin/sh\nexec "{python}" "{src}" notify "$@"\n')
+        shim.chmod(0o755)
+
+    return bin_dir
+
+
+def load_config(path=None):
+    path = Path(path or CONFIG_PATH)
+    if not path.exists():
+        sys.exit(f"Error: config file not found: {path}\nRun: matrix-cli setup")
+    config = {}
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line and "=" in line:
+            k, _, v = line.partition("=")
+            config[k.strip()] = v.strip()
+    missing = [k for k in REQUIRED_KEYS if k not in config]
+    if missing:
+        sys.exit(f"Error: missing config keys: {', '.join(missing)}")
+    return config
+
+
+def get_session_name():
+    try:
+        name = subprocess.check_output(
+            ["tmux", "display-message", "-p", "#S"],
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+        if name:
+            return name
+    except Exception:
+        pass
+    return socket.gethostname()
+
+
+def load_sessions(path=None):
+    path = Path(path or SESSIONS_PATH)
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text())
+
+
+def save_sessions(path, sessions):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(sessions, indent=2))
+
+
+def _put(url, headers, body, retries=3):
+    delays = [1, 2, 4]
+    for attempt in range(retries):
+        resp = requests.put(url, headers=headers, json=body)
+        if resp.status_code == 429:
+            if attempt < retries - 1:
+                time.sleep(delays[attempt])
+                continue
+        if resp.status_code not in (200, 201):
+            sys.exit(f"Error: Matrix API returned {resp.status_code}: {resp.text}")
+        return resp
+    sys.exit(f"Error: Matrix API rate-limited after {retries} retries")
+
+
+def _send_event(config, body):
+    homeserver = config["MATRIX_HOMESERVER"]
+    room_id = config["MATRIX_ROOM_ID"]
+    token = config["MATRIX_ACCESS_TOKEN"]
+    txn_id = str(uuid.uuid4())
+    url = f"{homeserver}/_matrix/client/v3/rooms/{room_id}/send/m.room.message/{txn_id}"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    resp = _put(url, headers, body)
+    return resp.json()["event_id"]
+
+
+def ensure_thread(session, config, sessions_path=None):
+    sessions_path = sessions_path or str(SESSIONS_PATH)
+    sessions = load_sessions(sessions_path)
+    if session in sessions:
+        return sessions[session]["thread_id"]
+    ts = time.strftime("%Y-%m-%d %H:%M")
+    event_id = _send_event(config, {"msgtype": "m.text", "body": f"[{session}] started {ts}"})
+    sessions[session] = {"thread_id": event_id, "started": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    save_sessions(sessions_path, sessions)
+    return event_id
+
+
+def send_message(msg_type, text, thread_id, config):
+    user = config["MATRIX_NOTIFY_USER"]
+    body = {
+        "msgtype": "m.text",
+        "body": f"[{msg_type}] {text}",
+        "m.relates_to": {"rel_type": "m.thread", "event_id": thread_id},
+    }
+    if msg_type == "alert":
+        body["format"] = "org.matrix.custom.html"
+        body["formatted_body"] = (
+            f"<b>[alert]</b> <a href='https://matrix.to/#/{user}'>{user}</a> {text}"
+        )
+        body["m.mentions"] = {"user_ids": [user]}
+    elif msg_type == "done":
+        body["format"] = "org.matrix.custom.html"
+        body["formatted_body"] = f"<b>[done]</b> {text}"
+    return _send_event(config, body)
+
+
+# ── listen helpers ────────────────────────────────────────────────────────────
+
+def _get_initial_since(homeserver, room_id, token):
+    """Grab current sync position without processing history."""
+    headers = {"Authorization": f"Bearer {token}"}
+    resp = requests.get(
+        f"{homeserver}/_matrix/client/v3/sync",
+        headers=headers,
+        params={"timeout": 0, "filter": json.dumps({"room": {"rooms": [room_id]}})},
+        timeout=10,
+    )
+    if resp.status_code == 200:
+        return resp.json().get("next_batch")
+    return None
+
+
+def _process_sync_events(data, notify_user, sessions_path=None):
+    """Extract (session_name, text) pairs for thread replies from the user.
+
+    Returns a list of (session_name, text) tuples ready to forward to tmux.
+    """
+    results = []
+    sessions = load_sessions(sessions_path)
+    thread_to_session = {info["thread_id"]: name for name, info in sessions.items()}
+
+    for room_events in data.get("rooms", {}).get("join", {}).values():
+        for event in room_events.get("timeline", {}).get("events", []):
+            if event.get("type") != "m.room.message":
+                continue
+            if event.get("sender") != notify_user:
+                continue
+            relates_to = event.get("content", {}).get("m.relates_to", {})
+            if relates_to.get("rel_type") != "m.thread":
+                continue
+            thread_id = relates_to.get("event_id")
+            if not thread_id:
+                continue
+            session_name = thread_to_session.get(thread_id)
+            if not session_name:
+                continue
+            text = event.get("content", {}).get("body", "").strip()
+            if text:
+                results.append((session_name, text))
+    return results
+
+
+def _forward_to_tmux(session_name, text):
+    """Submit text to a tmux session as user input (with Enter)."""
+    try:
+        subprocess.run(
+            ["tmux", "send-keys", "-t", session_name, text, "Enter"],
+            capture_output=True,
+        )
+    except Exception:
+        pass
+
+
+def cmd_listen(daemon=False, config_path=None, sessions_path=None, sync_token_path=None):
+    config = load_config(config_path)
+    homeserver = config["MATRIX_HOMESERVER"]
+    token     = config["MATRIX_ACCESS_TOKEN"]
+    room_id   = config["MATRIX_ROOM_ID"]
+    notify_user = config["MATRIX_NOTIFY_USER"]
+    sp = Path(sync_token_path or SYNC_TOKEN_PATH)
+
+    if daemon:
+        LISTEN_PID_FILE.write_text(str(os.getpid()))
+
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Initialise since token on first run so we only process new messages.
+    since = sp.read_text().strip() if sp.exists() else None
+    if not since:
+        since = _get_initial_since(homeserver, room_id, token)
+        if since:
+            sp.parent.mkdir(parents=True, exist_ok=True)
+            sp.write_text(since)
+
+    while True:
+        try:
+            params = {
+                "timeout": 30000,
+                "filter": json.dumps({"room": {"rooms": [room_id], "timeline": {"limit": 50}}}),
+            }
+            if since:
+                params["since"] = since
+
+            resp = requests.get(
+                f"{homeserver}/_matrix/client/v3/sync",
+                headers=headers,
+                params=params,
+                timeout=40,
+            )
+            if resp.status_code != 200:
+                time.sleep(5)
+                continue
+
+            data = resp.json()
+            since = data.get("next_batch", since)
+            if since:
+                sp.write_text(since)
+
+            for session_name, text in _process_sync_events(data, notify_user, sessions_path):
+                _forward_to_tmux(session_name, text)
+
+        except Exception:
+            time.sleep(5)
+
+
+# ── setup ─────────────────────────────────────────────────────────────────────
+
+def setup():
+    print("\nmatrix-cli setup")
+    print("================\n")
+
+    print("Step 0/6 — Config directory")
+    default_dir = str(Path.home() / ".matrix-cli")
+    while True:
+        raw = input(f"  Default: {default_dir}/\n  Press Enter to accept or type a different path: ").strip()
+        config_dir = Path(raw if raw else default_dir)
+        try:
+            config_dir.mkdir(parents=True, exist_ok=True)
+            break
+        except Exception as e:
+            print(f"  ! Could not create directory: {e}, please try again")
+    config_path = config_dir / "config"
+    print(f"  ✓ Config directory: {config_dir}/\n")
+
+    print("Step 1/6 — Homeserver")
+    print("  Find it in Element: Settings → Help & About → Homeserver")
+    while True:
+        raw = input("  Default: https://mozilla.modular.im\n  Press Enter to accept or type a different URL: ").strip()
+        homeserver = raw if raw else "https://mozilla.modular.im"
+        if not homeserver.startswith("http"):
+            print(f"  ! Must be a valid URL starting with http (got '{homeserver}'), please try again")
+        else:
+            break
+    print(f"  ✓ MATRIX_HOMESERVER={homeserver}\n")
+
+    print("Step 2/6 — Access Token")
+    print("  Find it in Element: Settings → Help & About → Access Token")
+    while True:
+        token = getpass.getpass("  Paste token (input hidden): ")
+        token = re.sub(r'\x1b\[[0-9;]*[A-Za-z]|\[[A-Z]', '', token)
+        token = "".join(c for c in token if c.isprintable()).strip()
+        if not token:
+            print("  ! Cannot be empty, please try again")
+        else:
+            break
+    print("  ✓ MATRIX_ACCESS_TOKEN saved\n")
+
+    print("Step 3/6 — Your Matrix user ID")
+    print("  Find it in Element: Settings → Account → your ID is shown as @username:homeserver")
+    while True:
+        notify_user = input("  User ID (e.g. @you:mozilla.org): ").strip()
+        if not notify_user:
+            print("  ! Cannot be empty, please try again")
+        elif not notify_user.startswith("@") or ":" not in notify_user:
+            print(f"  ! Must be in the format @username:homeserver (got '{notify_user}'), please try again")
+        else:
+            break
+    print(f"  ✓ MATRIX_NOTIFY_USER saved\n")
+
+    print("Step 4/6 — Notification room")
+    raw = input("  Default room name: matrix-notify\n  Press Enter to accept or type a different name: ").strip()
+    room_name = raw if raw else "matrix-notify"
+    print(f"  Creating '{room_name}'...", end=" ", flush=True)
+    headers = {"Authorization": f"Bearer {token}"}
+    create_resp = requests.post(
+        f"{homeserver}/_matrix/client/v3/createRoom",
+        headers=headers,
+        json={"name": room_name, "preset": "private_chat", "visibility": "private"},
+    )
+    if create_resp.status_code != 200:
+        sys.exit(f"Error: could not create notification room: {create_resp.text}")
+    room_id = create_resp.json()["room_id"]
+    print(f"✓ {room_id}")
+    invite_resp = requests.post(
+        f"{homeserver}/_matrix/client/v3/rooms/{requests.utils.quote(room_id, safe='')}/invite",
+        headers=headers,
+        json={"user_id": notify_user},
+    )
+    if invite_resp.status_code == 200:
+        print(f"  ✓ Invited {notify_user}")
+    else:
+        print(f"  ! Could not invite {notify_user}: {invite_resp.json().get('error', invite_resp.status_code)}")
+    input(f"  Accept the invite in Element, then press Enter: ")
+    txn_id = str(uuid.uuid4())
+    hello_url = f"{homeserver}/_matrix/client/v3/rooms/{requests.utils.quote(room_id, safe='')}/send/m.room.message/{txn_id}"
+    requests.put(hello_url, headers=headers, json={"msgtype": "m.text", "body": "matrix-cli is set up and ready."})
+    print()
+
+    print("Step 5/6 — Test Room ID (optional)")
+    print("  A separate private room used by integration tests.")
+    print("  Press Enter to have one created automatically.")
+    test_room_id = input("  Test Room ID (or Enter to auto-create): ").strip()
+    if test_room_id and (not test_room_id.startswith("!") or ":" not in test_room_id):
+        print(f"  ! Invalid format, will auto-create instead")
+        test_room_id = ""
+    if not test_room_id:
+        create_test_resp = requests.post(
+            f"{homeserver}/_matrix/client/v3/createRoom",
+            headers=headers,
+            json={"name": "matrix-cli tests", "preset": "private_chat", "visibility": "private"},
+        )
+        if create_test_resp.status_code == 200:
+            test_room_id = create_test_resp.json()["room_id"]
+            print(f"  ✓ Test room created: {test_room_id}\n")
+        else:
+            print(f"  ! Could not create test room, skipping\n")
+    else:
+        print(f"  ✓ MATRIX_TEST_ROOM_ID saved\n")
+
+    config_content = (
+        f"MATRIX_HOMESERVER={homeserver}\n"
+        f"MATRIX_ACCESS_TOKEN={token}\n"
+        f"MATRIX_ROOM_ID={room_id}\n"
+        f"MATRIX_NOTIFY_USER={notify_user}\n"
+    )
+    if test_room_id:
+        config_content += f"MATRIX_TEST_ROOM_ID={test_room_id}\n"
+    config_path.write_text(config_content)
+
+    default_bin = str(_default_bin_dir())
+    raw = input(f"Step 6/6 — Install location\n  Default: {default_bin}\n  Press Enter to accept or type a different path: ").strip()
+    bin_dir = Path(raw if raw else default_bin)
+    bin_dir_result = install_to_path(bin_dir=bin_dir)
+    installed = bin_dir_result / ("matrix-cli.bat" if sys.platform == "win32" else "matrix-cli")
+    print(f"  ✓ Installed to {installed}")
+    print(f"  ✓ matrix-notify shim installed (backwards compatibility)")
+    path_dirs = os.environ.get("PATH", "").split(os.pathsep)
+    if str(bin_dir_result) not in path_dirs:
+        if sys.platform == "win32":
+            print(f"  ! Add {bin_dir_result} to your PATH (System Properties → Environment Variables)")
+        else:
+            shell_cfg = "~/.zshrc" if os.path.exists(os.path.expanduser("~/.zshrc")) else "~/.bashrc"
+            print(f"  ! Add to your shell config ({shell_cfg}):")
+            print(f'      export PATH="{bin_dir_result}:$PATH"')
+    print()
+
+    repo_dir = _script_path().parent
+    if (repo_dir / ".git").exists():
+        subprocess.call(
+            ["git", "config", "core.hooksPath", "scripts"],
+            cwd=str(repo_dir),
+        )
+
+    print(f"Config written to {config_dir}/")
+    print("Sending test message...", end=" ", flush=True)
+    config = load_config(str(config_path))
+    sessions_path = str(config_dir / "sessions.json")
+    thread_id = ensure_thread("setup-test", config, sessions_path)
+    send_message("log", "matrix-cli setup complete", thread_id, config)
+    print("✓\n")
+    print('Setup complete. Try: matrix-cli notify log "hello"')
+
+
+# ── subcommand dispatch ───────────────────────────────────────────────────────
+
+def cmd_notify(msg_type, text):
+    if msg_type not in ("log", "alert", "done"):
+        sys.exit(f"Error: unknown type '{msg_type}', must be log, alert, or done")
+    config = load_config()
+    session = get_session_name()
+    thread_id = ensure_thread(session, config, str(SESSIONS_PATH))
+    send_message(msg_type, text, thread_id, config)
+
+
+def main():
+    args = sys.argv[1:]
+
+    if not args or args[0] == "setup":
+        setup()
+        return
+
+    if not CONFIG_PATH.exists():
+        print("No config found — starting setup...\n")
+        setup()
+        return
+
+    if args[0] == "notify":
+        if len(args) < 3:
+            sys.exit("Usage: matrix-cli notify <log|alert|done> <message>")
+        cmd_notify(args[1], " ".join(args[2:]))
+    elif args[0] == "listen":
+        daemon = "--daemon" in args
+        cmd_listen(daemon=daemon)
+    elif args[0] in ("log", "alert", "done"):
+        # Backwards compat: matrix-cli log "msg" (called via matrix-notify shim)
+        if len(args) < 2:
+            sys.exit(f"Usage: matrix-cli notify {args[0]} <message>")
+        cmd_notify(args[0], " ".join(args[1:]))
+    else:
+        sys.exit("Usage: matrix-cli <setup|notify|listen>")
+
+
+if __name__ == "__main__":
+    main()

@@ -16,12 +16,12 @@ if [ -f "$HOME/.matrix-cli/config" ]; then
   fi
 fi
 
-# Auto-update README when matrix-notify changes
-if git diff --cached --name-only | grep -q "^matrix-notify$"; then
+# Auto-update README when matrix-cli changes
+if git diff --cached --name-only | grep -qE "^matrix-cli$|^matrix-notify$"; then
   if command -v claude >/dev/null 2>&1; then
-    echo "pre-commit: matrix-notify changed — asking Claude to update README if needed..."
-    DIFF=$(git diff --cached -- matrix-notify)
-    printf '%s' "$DIFF" | claude -p "You are reviewing a diff of the matrix-notify CLI script.
+    echo "pre-commit: matrix-cli changed — asking Claude to update README if needed..."
+    DIFF=$(git diff --cached -- matrix-cli matrix-notify)
+    printf '%s' "$DIFF" | claude -p "You are reviewing a diff of the matrix-cli CLI script.
 If any user-facing behaviour changed — CLI subcommands, flags, setup steps, install behaviour, error messages — update README.md accordingly.
 Only edit README.md. Do not change any other file. If nothing user-facing changed, do nothing.
 The diff is provided via stdin." --allowedTools "Edit,Read" 2>/dev/null

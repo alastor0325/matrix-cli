@@ -16,7 +16,7 @@ pytestmark = pytest.mark.skipif(
     reason="~/.matrix-cli/config not present — skipping integration tests",
 )
 
-_script = Path(__file__).parents[2] / "matrix-notify"
+_script = Path(__file__).parents[2] / "matrix-cli"
 _spec = importlib.util.spec_from_loader(
     "matrix_notify",
     importlib.machinery.SourceFileLoader("matrix_notify", str(_script)),

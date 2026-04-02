@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, call, mock_open, patch
 import pytest
 
 # Load the script as a module despite having no .py extension
-_script = Path(__file__).parents[2] / "matrix-notify"
+_script = Path(__file__).parents[2] / "matrix-cli"
 _spec = importlib.util.spec_from_loader(
     "matrix_notify",
     importlib.machinery.SourceFileLoader("matrix_notify", str(_script)),
@@ -507,7 +507,7 @@ class TestAutoSetup:
 
 class TestInstallToPath:
     def _fake_script(self, tmp_path):
-        s = tmp_path / "matrix-notify"
+        s = tmp_path / "matrix-cli"
         s.write_text("#!/usr/bin/env python3\n")
         s.chmod(0o644)
         return s
@@ -530,12 +530,15 @@ class TestInstallToPath:
             with patch.object(matrix_notify, "_script_path", return_value=src):
                 with patch.object(matrix_notify, "_setup_venv", return_value=venv_dir):
                     matrix_notify.install_to_path(bin_dir=bin_dir, venv_dir=venv_dir)
-        wrapper = bin_dir / "matrix-notify"
+        wrapper = bin_dir / "matrix-cli"
         assert wrapper.exists()
         assert not wrapper.is_symlink()
         content = wrapper.read_text()
         assert str(src) in content
         assert "python3" in content
+        shim = bin_dir / "matrix-notify"
+        assert shim.exists()
+        assert str(src) in shim.read_text()
 
     def test_unix_bin_dir_created_if_missing(self, tmp_path):
         _load()
@@ -559,9 +562,11 @@ class TestInstallToPath:
         with patch("sys.platform", "win32"):
             with patch.object(matrix_notify, "_setup_venv", return_value=venv_dir):
                 matrix_notify.install_to_path(bin_dir=bin_dir, script=script, venv_dir=venv_dir)
-        bat = bin_dir / "matrix-notify.bat"
+        bat = bin_dir / "matrix-cli.bat"
         assert bat.exists()
         assert "python" in bat.read_text().lower()
+        shim = bin_dir / "matrix-notify.bat"
+        assert shim.exists()
 
     def test_returns_bin_dir(self, tmp_path):
         _load()
@@ -573,3 +578,208 @@ class TestInstallToPath:
                 with patch.object(matrix_notify, "_setup_venv", return_value=venv_dir):
                     result = matrix_notify.install_to_path(bin_dir=bin_dir, venv_dir=venv_dir)
         assert result == bin_dir
+
+
+# ---------------------------------------------------------------------------
+# _process_sync_events
+# ---------------------------------------------------------------------------
+
+class TestProcessSyncEvents:
+    def _sessions(self, tmp_path):
+        path = str(tmp_path / "sessions.json")
+        _load()
+        matrix_notify.save_sessions(path, {
+            "bug-1234": {"thread_id": "$root1:mozilla.org", "started": "2026-04-01T10:00:00"},
+        })
+        return path
+
+    def test_returns_empty_when_no_events(self, tmp_path):
+        _load()
+        sessions_path = self._sessions(tmp_path)
+        result = matrix_notify._process_sync_events({}, "@me:mozilla.org", sessions_path)
+        assert result == []
+
+    def test_returns_event_for_matching_thread(self, tmp_path):
+        _load()
+        sessions_path = self._sessions(tmp_path)
+        data = {"rooms": {"join": {"!r:m.org": {"timeline": {"events": [{
+            "type": "m.room.message",
+            "sender": "@me:mozilla.org",
+            "content": {
+                "body": "hello",
+                "m.relates_to": {"rel_type": "m.thread", "event_id": "$root1:mozilla.org"},
+            },
+        }]}}}}}
+        result = matrix_notify._process_sync_events(data, "@me:mozilla.org", sessions_path)
+        assert result == [("bug-1234", "hello")]
+
+    def test_ignores_event_from_other_sender(self, tmp_path):
+        _load()
+        sessions_path = self._sessions(tmp_path)
+        data = {"rooms": {"join": {"!r:m.org": {"timeline": {"events": [{
+            "type": "m.room.message",
+            "sender": "@other:mozilla.org",
+            "content": {
+                "body": "hello",
+                "m.relates_to": {"rel_type": "m.thread", "event_id": "$root1:mozilla.org"},
+            },
+        }]}}}}}
+        result = matrix_notify._process_sync_events(data, "@me:mozilla.org", sessions_path)
+        assert result == []
+
+    def test_ignores_non_thread_reply(self, tmp_path):
+        _load()
+        sessions_path = self._sessions(tmp_path)
+        data = {"rooms": {"join": {"!r:m.org": {"timeline": {"events": [{
+            "type": "m.room.message",
+            "sender": "@me:mozilla.org",
+            "content": {
+                "body": "plain message",
+                "m.relates_to": {"rel_type": "m.reference", "event_id": "$root1:mozilla.org"},
+            },
+        }]}}}}}
+        result = matrix_notify._process_sync_events(data, "@me:mozilla.org", sessions_path)
+        assert result == []
+
+    def test_ignores_event_for_unknown_thread(self, tmp_path):
+        _load()
+        sessions_path = self._sessions(tmp_path)
+        data = {"rooms": {"join": {"!r:m.org": {"timeline": {"events": [{
+            "type": "m.room.message",
+            "sender": "@me:mozilla.org",
+            "content": {
+                "body": "hello",
+                "m.relates_to": {"rel_type": "m.thread", "event_id": "$unknown:mozilla.org"},
+            },
+        }]}}}}}
+        result = matrix_notify._process_sync_events(data, "@me:mozilla.org", sessions_path)
+        assert result == []
+
+    def test_ignores_empty_body(self, tmp_path):
+        _load()
+        sessions_path = self._sessions(tmp_path)
+        data = {"rooms": {"join": {"!r:m.org": {"timeline": {"events": [{
+            "type": "m.room.message",
+            "sender": "@me:mozilla.org",
+            "content": {
+                "body": "   ",
+                "m.relates_to": {"rel_type": "m.thread", "event_id": "$root1:mozilla.org"},
+            },
+        }]}}}}}
+        result = matrix_notify._process_sync_events(data, "@me:mozilla.org", sessions_path)
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# _forward_to_tmux
+# ---------------------------------------------------------------------------
+
+class TestForwardToTmux:
+    def test_calls_tmux_send_keys(self):
+        _load()
+        with patch("subprocess.run") as mock_run:
+            matrix_notify._forward_to_tmux("bug-1234", "hello world")
+            mock_run.assert_called_once_with(
+                ["tmux", "send-keys", "-t", "bug-1234", "hello world", "Enter"],
+                capture_output=True,
+            )
+
+    def test_swallows_exception_on_failure(self):
+        _load()
+        with patch("subprocess.run", side_effect=Exception("tmux not found")):
+            matrix_notify._forward_to_tmux("bug-1234", "hello")  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# _get_initial_since
+# ---------------------------------------------------------------------------
+
+class TestGetInitialSince:
+    def test_returns_next_batch_on_success(self):
+        _load()
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = {"next_batch": "s123_456"}
+        with patch("requests.get", return_value=mock_resp):
+            result = matrix_notify._get_initial_since(
+                "https://chat.mozilla.org", "!room:mozilla.org", "tok"
+            )
+        assert result == "s123_456"
+
+    def test_returns_none_on_error(self):
+        _load()
+        mock_resp = MagicMock(status_code=401)
+        with patch("requests.get", return_value=mock_resp):
+            result = matrix_notify._get_initial_since(
+                "https://chat.mozilla.org", "!room:mozilla.org", "tok"
+            )
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# cmd_listen — daemon PID and token initialisation
+# ---------------------------------------------------------------------------
+
+class TestCmdListen:
+    def _make_config(self, tmp_path):
+        cfg = tmp_path / "config"
+        cfg.write_text(
+            "MATRIX_HOMESERVER=https://chat.mozilla.org\n"
+            "MATRIX_ACCESS_TOKEN=tok\n"
+            "MATRIX_ROOM_ID=!abc:mozilla.org\n"
+            "MATRIX_NOTIFY_USER=@me:mozilla.org\n"
+        )
+        return str(cfg)
+
+    def test_daemon_writes_pid_file(self, tmp_path):
+        _load()
+        config_path = self._make_config(tmp_path)
+        pid_file = tmp_path / "listen.pid"
+        sync_token_path = tmp_path / "sync-token"
+
+        call_count = [0]
+        def fake_get(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # initial since
+                m = MagicMock(status_code=200)
+                m.json.return_value = {"next_batch": "s1"}
+                return m
+            raise KeyboardInterrupt
+
+        with patch.object(matrix_notify, "LISTEN_PID_FILE", pid_file):
+            with patch("requests.get", side_effect=fake_get):
+                with patch("time.sleep"):
+                    try:
+                        matrix_notify.cmd_listen(
+                            daemon=True,
+                            config_path=config_path,
+                            sync_token_path=str(sync_token_path),
+                        )
+                    except (KeyboardInterrupt, Exception):
+                        pass
+        assert pid_file.exists()
+        assert int(pid_file.read_text()) == os.getpid()
+
+    def test_initializes_since_from_existing_token(self, tmp_path):
+        _load()
+        config_path = self._make_config(tmp_path)
+        sync_token_path = tmp_path / "sync-token"
+        sync_token_path.write_text("s_existing_token")
+
+        get_calls = []
+        def fake_get(url, **kwargs):
+            get_calls.append(kwargs.get("params", {}))
+            raise KeyboardInterrupt
+
+        with patch("requests.get", side_effect=fake_get):
+            with patch("time.sleep"):
+                try:
+                    matrix_notify.cmd_listen(
+                        daemon=False,
+                        config_path=config_path,
+                        sync_token_path=str(sync_token_path),
+                    )
+                except (KeyboardInterrupt, Exception):
+                    pass
+        assert get_calls
+        assert get_calls[0].get("since") == "s_existing_token"
