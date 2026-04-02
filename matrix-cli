@@ -340,7 +340,7 @@ def setup():
     print("  1. Homeserver         — your Matrix server URL")
     print("  2. Access token       — bot account credentials")
     print("  3. Your Matrix ID     — who to @mention for alerts")
-    print("  4. Notification room  — where messages are posted")
+    print("  4. Notification room  — existing room ID or auto-create")
     print("  5. Test room          — optional room for integration tests")
     print("  6. Install location   — where to put the matrix-cli binary")
     print()
@@ -394,33 +394,38 @@ def setup():
     print(f"  ✓ MATRIX_NOTIFY_USER saved\n")
 
     print("Step 4/6 — Notification room")
-    raw = input("  Default room name: matrix-notify\n  Press Enter to accept or type a different name: ").strip()
-    room_name = raw if raw else "matrix-notify"
-    print(f"  Creating '{room_name}'...", end=" ", flush=True)
+    print("  Paste an existing room ID to use it, or press Enter to create a new room.")
+    raw = input("  Room ID (e.g. !abc:mozilla.org) or Enter to auto-create: ").strip()
     headers = {"Authorization": f"Bearer {token}"}
-    create_resp = requests.post(
-        f"{homeserver}/_matrix/client/v3/createRoom",
-        headers=headers,
-        json={"name": room_name, "preset": "private_chat", "visibility": "private"},
-    )
-    if create_resp.status_code != 200:
-        sys.exit(f"Error: could not create notification room: {create_resp.text}")
-    room_id = create_resp.json()["room_id"]
-    print(f"✓ {room_id}")
-    invite_resp = requests.post(
-        f"{homeserver}/_matrix/client/v3/rooms/{requests.utils.quote(room_id, safe='')}/invite",
-        headers=headers,
-        json={"user_id": notify_user},
-    )
-    if invite_resp.status_code == 200:
-        print(f"  ✓ Invited {notify_user}")
+    if raw and raw.startswith("!") and ":" in raw:
+        room_id = raw
+        print(f"  ✓ Using existing room: {room_id}\n")
     else:
-        print(f"  ! Could not invite {notify_user}: {invite_resp.json().get('error', invite_resp.status_code)}")
-    input(f"  Accept the invite in Element, then press Enter: ")
-    txn_id = str(uuid.uuid4())
-    hello_url = f"{homeserver}/_matrix/client/v3/rooms/{requests.utils.quote(room_id, safe='')}/send/m.room.message/{txn_id}"
-    requests.put(hello_url, headers=headers, json={"msgtype": "m.text", "body": "matrix-cli is set up and ready."})
-    print()
+        room_name = raw if raw and not raw.startswith("!") else "matrix-notify"
+        print(f"  Creating '{room_name}'...", end=" ", flush=True)
+        create_resp = requests.post(
+            f"{homeserver}/_matrix/client/v3/createRoom",
+            headers=headers,
+            json={"name": room_name, "preset": "private_chat", "visibility": "private"},
+        )
+        if create_resp.status_code != 200:
+            sys.exit(f"Error: could not create notification room: {create_resp.text}")
+        room_id = create_resp.json()["room_id"]
+        print(f"✓ {room_id}")
+        invite_resp = requests.post(
+            f"{homeserver}/_matrix/client/v3/rooms/{requests.utils.quote(room_id, safe='')}/invite",
+            headers=headers,
+            json={"user_id": notify_user},
+        )
+        if invite_resp.status_code == 200:
+            print(f"  ✓ Invited {notify_user}")
+        else:
+            print(f"  ! Could not invite {notify_user}: {invite_resp.json().get('error', invite_resp.status_code)}")
+        input("  Accept the invite in Element, then press Enter: ")
+        txn_id = str(uuid.uuid4())
+        hello_url = f"{homeserver}/_matrix/client/v3/rooms/{requests.utils.quote(room_id, safe='')}/send/m.room.message/{txn_id}"
+        requests.put(hello_url, headers=headers, json={"msgtype": "m.text", "body": "matrix-cli is set up and ready."})
+        print()
 
     print("Step 5/6 — Test Room ID (optional)")
     print("  A separate private room used by integration tests.")

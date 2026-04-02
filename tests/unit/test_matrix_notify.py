@@ -366,6 +366,24 @@ class TestBotRoomSetup:
         m.json.return_value = {"room_id": room_id}
         return m
 
+    def test_existing_room_id_skips_creation_and_invite(self, tmp_path):
+        _load()
+        # config_dir, homeserver, user_id, existing_room_id, explicit_test_room, install_dir
+        # providing explicit test room ID to avoid auto-creation there too
+        inputs = [str(tmp_path), "", "@you:m.org", "!existing:m.org", "!test:m.org", "", ""]
+        with patch("subprocess.call"), patch("subprocess.check_call"):
+            with patch.object(matrix_notify, "install_to_path"):
+                with patch("builtins.input", side_effect=iter(inputs)):
+                    with patch("getpass.getpass", return_value="tok"):
+                        with patch("requests.post", return_value=self._mock_post()) as mock_post:
+                            with patch("requests.put", return_value=self._mock_put()):
+                                matrix_notify.setup()
+        urls = [c[0][0] for c in mock_post.call_args_list]
+        assert not any("createRoom" in url for url in urls)
+        assert not any("invite" in url for url in urls)
+        config = {k: v for k, _, v in (l.partition("=") for l in (tmp_path / "config").read_text().splitlines() if "=" in l)}
+        assert config["MATRIX_ROOM_ID"] == "!existing:m.org"
+
     def test_room_created_via_api(self, tmp_path):
         _load()
         with patch("subprocess.call"), patch("subprocess.check_call"):
