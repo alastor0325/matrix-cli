@@ -1,7 +1,7 @@
 # Rules
 
 ## TDD (strictly enforced)
-Write the failing test first. Do not write or modify any code in `matrix-notify`
+Write the failing test first. Do not write or modify any code in `matrix-cli`
 until a test that exercises the new behavior exists and is confirmed to fail.
 Two test suites are required:
 
