@@ -3,16 +3,29 @@ set -e
 
 REPO="https://raw.githubusercontent.com/alastor0325/matrix-cli/main"
 BIN_DIR="${HOME}/.local/bin"
-SCRIPT="${BIN_DIR}/matrix-cli"
+CONFIG_DIR="${HOME}/.matrix-cli"
+STORE="${CONFIG_DIR}/matrix-cli"
 SHIM="${BIN_DIR}/matrix-notify"
 
-# Create bin dir if needed
-mkdir -p "${BIN_DIR}"
+# Create dirs if needed
+mkdir -p "${BIN_DIR}" "${CONFIG_DIR}"
 
-# Download the script
+# Download the script to its permanent store location
 echo "Downloading matrix-cli..."
-curl -fsSL "${REPO}/matrix-cli" -o "${SCRIPT}"
-chmod +x "${SCRIPT}"
+curl -fsSL "${REPO}/matrix-cli" -o "${STORE}"
+chmod +x "${STORE}"
+
+# If setup has already been run (venv exists), regenerate the bin shim now
+# so that upgrading via this script doesn't require re-running setup.
+VENV="${CONFIG_DIR}/.venv"
+if [ -f "${VENV}/bin/python3" ]; then
+    printf '#!/bin/sh\nexec "%s/bin/python3" "%s" "$@"\n' "${VENV}" "${STORE}" > "${BIN_DIR}/matrix-cli"
+    chmod +x "${BIN_DIR}/matrix-cli"
+else
+    # First install: put the raw script in bin so `matrix-cli` (setup) works
+    cp "${STORE}" "${BIN_DIR}/matrix-cli"
+    chmod +x "${BIN_DIR}/matrix-cli"
+fi
 
 # Backwards-compatibility shim
 printf '#!/bin/sh\nexec matrix-cli notify "$@"\n' > "${SHIM}"
