@@ -622,19 +622,21 @@ class TestInstallToPath:
         src = self._fake_script(tmp_path)
         bin_dir = tmp_path / "bin"
         venv_dir = self._fake_venv(tmp_path)
+        store = tmp_path / "store" / "matrix-cli"
         with patch("sys.platform", "linux"):
             with patch.object(matrix_notify, "_script_path", return_value=src):
                 with patch.object(matrix_notify, "_setup_venv", return_value=venv_dir):
-                    matrix_notify.install_to_path(bin_dir=bin_dir, venv_dir=venv_dir)
+                    with patch.object(matrix_notify, "_default_script_store", return_value=store):
+                        matrix_notify.install_to_path(bin_dir=bin_dir, venv_dir=venv_dir)
         wrapper = bin_dir / "matrix-cli"
         assert wrapper.exists()
         assert not wrapper.is_symlink()
         content = wrapper.read_text()
-        assert str(src) in content
+        assert str(store) in content
         assert "python3" in content
         shim = bin_dir / "matrix-notify"
         assert shim.exists()
-        assert str(src) in shim.read_text()
+        assert str(store) in shim.read_text()
 
     def test_unix_bin_dir_created_if_missing(self, tmp_path):
         _load()

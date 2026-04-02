@@ -74,6 +74,10 @@ def _venv_python(venv_dir):
     return venv_dir / "bin" / "python3"
 
 
+def _default_script_store():
+    return Path.home() / ".matrix-cli" / "matrix-cli"
+
+
 def install_to_path(bin_dir=None, script=None, venv_dir=None):
     bin_dir = Path(bin_dir) if bin_dir else _default_bin_dir()
     bin_dir.mkdir(parents=True, exist_ok=True)
@@ -83,17 +87,26 @@ def install_to_path(bin_dir=None, script=None, venv_dir=None):
     _setup_venv(venv_dir)
     python = _venv_python(venv_dir)
 
+    # Copy the Python script to a stable location so the bin shim doesn't
+    # overwrite the script it points to (happens when src == bin_dir/matrix-cli).
+    store = _default_script_store()
+    store.parent.mkdir(parents=True, exist_ok=True)
+    if src.resolve() != store.resolve():
+        import shutil
+        shutil.copy2(src, store)
+    store.chmod(0o644)
+
     if sys.platform == "win32":
         dest = bin_dir / "matrix-cli.bat"
-        dest.write_text(f'@echo off\n"{python}" "{src}" %*\n')
+        dest.write_text(f'@echo off\n"{python}" "{store}" %*\n')
         shim = bin_dir / "matrix-notify.bat"
-        shim.write_text(f'@echo off\n"{python}" "{src}" notify %*\n')
+        shim.write_text(f'@echo off\n"{python}" "{store}" notify %*\n')
     else:
         dest = bin_dir / "matrix-cli"
-        dest.write_text(f'#!/bin/sh\nexec "{python}" "{src}" "$@"\n')
+        dest.write_text(f'#!/bin/sh\nexec "{python}" "{store}" "$@"\n')
         dest.chmod(0o755)
         shim = bin_dir / "matrix-notify"
-        shim.write_text(f'#!/bin/sh\nexec "{python}" "{src}" notify "$@"\n')
+        shim.write_text(f'#!/bin/sh\nexec "{python}" "{store}" notify "$@"\n')
         shim.chmod(0o755)
 
     return bin_dir
