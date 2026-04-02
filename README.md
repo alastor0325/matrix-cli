@@ -20,15 +20,15 @@ my-bot  [session-name] started 2026-04-01 10:00
 
 2. **Prepare your credentials** — you'll need these during the wizard:
 
-   | What | Where to find it |
-   |------|-----------------|
+   | What | How to get it |
+   |------|--------------|
    | Homeserver URL | Element → Settings → Help & About → Homeserver (defaults to `https://mozilla.modular.im`) |
-   | Bot access token | Log into Element as the bot → Settings → Help & About → Access Token |
-   | Your Matrix user ID | Element → Settings → Account (shown as `@username:homeserver`) |
+   | Bot access token | Create a new Matrix account for the bot, log in as it in Element → Settings → Help & About → Access Token |
+   | Your Matrix user ID | Your personal account → Element → Settings → Account (shown as `@username:homeserver`) |
 
-3. **Run setup**
+3. **Run setup** — from the cloned repo directory:
    ```bash
-   python3 matrix-cli
+   ./matrix-cli
    ```
    The wizard walks through homeserver URL, bot access token, your Matrix user ID, notification room name, optional test room, and install location. Credentials are written to `~/.matrix-cli/config` — outside the repo, never committed.
 
