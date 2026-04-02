@@ -23,15 +23,10 @@ my-bot  [session-name] started 2026-04-01 10:00
 git clone https://github.com/alastor0325/matrix-cli
 cd matrix-cli
 pip3 install -r requirements.txt
+python3 matrix-cli  # setup runs automatically on first use
 ```
 
-Run setup interactively:
-
-```bash
-python3 matrix-cli setup
-```
-
-Or run any subcommand — if no config is found, setup starts automatically.
+After installation, `matrix-cli` is available on your PATH and setup runs automatically whenever no config is present.
 
 This walks you through seven steps (homeserver URL, bot access token, your Matrix user ID, notification room, optional test room, and install location) and writes credentials to `~/.matrix-cli/config` — outside the repo, never committed. The homeserver URL defaults to `https://mozilla.modular.im`. All inputs are validated and setup loops until a valid value is entered. The access token input is hidden while you type.
 
