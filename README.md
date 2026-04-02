@@ -17,6 +17,10 @@ my-bot  [session-name] started 2026-04-01 10:00
    ```
    This downloads `matrix-cli` to `~/.local/bin/`, installs the `matrix-notify` shim, and ensures `requests` is available.
 
+   **Prerequisites:** Python 3 with `venv` support is required. On some Linux distros it is not included by default:
+   - Debian/Ubuntu: `sudo apt install python3-venv`
+   - Fedora/RHEL: `sudo dnf install python3-venv`
+
 2. **Prepare your credentials** — you'll need these during the wizard:
 
    | What | How to get it |
