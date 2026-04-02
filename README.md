@@ -47,6 +47,8 @@ my-bot  [session-name] started 2026-04-01 10:00
 
 4. **Done** — setup runs automatically again if the config is ever missing.
 
+   At the end of setup the listen daemon is started immediately in the background. On macOS/Linux, `matrix-cli listen --daemon` is also appended to `~/.zshrc` (or `~/.bashrc`) so the daemon auto-starts on every future login.
+
 ## Usage
 
 ### Sending notifications
