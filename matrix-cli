@@ -59,8 +59,11 @@ def _setup_venv(venv_dir):
                 f"On Fedora/RHEL, run:    sudo dnf install python3-venv\n"
                 f"Or use the system python directly: python{ver} -m ensurepip --upgrade"
             )
+    python = venv_dir / ("Scripts" if sys.platform == "win32" else "bin") / "python3"
     pip = venv_dir / ("Scripts" if sys.platform == "win32" else "bin") / "pip"
-    subprocess.check_call([str(pip), "install", "-q", "requests"])
+    if not pip.exists():
+        subprocess.check_call([str(python), "-m", "ensurepip", "--upgrade"])
+    subprocess.check_call([str(python), "-m", "pip", "install", "-q", "requests"])
     return venv_dir
 
 
